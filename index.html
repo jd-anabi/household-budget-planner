@@ -281,6 +281,28 @@ textarea.copybox { width: 100%; min-height: 120px; font: 13px/1.4 ui-monospace, 
 
 .acct-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 
+.ci-start { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.ci-start .field { min-width: 160px; }
+.ci-scn { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; color: var(--ink-2); margin-bottom: 12px; }
+.ci-scn .in { width: auto; padding: 4px 6px; font-size: 13px; }
+.ci-rows { display: flex; flex-direction: column; gap: 6px; }
+.ci-head, .ci-row { display: grid; grid-template-columns: minmax(0, 1fr) 84px 120px 120px; gap: 8px; align-items: center; font-size: 14px; }
+.ci-head { font-size: 12px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.04em; }
+.ci-head .r, .ci-row .r { text-align: right; font-variant-numeric: tabular-nums; }
+.ci-n { overflow-wrap: anywhere; }
+.ci-n small { display: block; font-size: 11px; color: var(--ink-3); }
+.ci-total { border-top: 1px solid var(--line); padding-top: 8px; font-weight: 600; }
+.ci-over { color: var(--warn); font-weight: 600; }
+.ci-under { color: var(--ok); font-weight: 600; }
+.ci-sub { font-family: var(--font-display); font-size: 15px; font-weight: 700; margin: 18px 0 8px; }
+.ci-goals { display: flex; flex-direction: column; gap: 10px; }
+.ci-goal { display: grid; grid-template-columns: minmax(0, 1fr) 130px; gap: 4px 10px; align-items: center; font-size: 14px; }
+.ci-goal .ci-meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: 12px; color: var(--ink-2); }
+.ci-assumed { color: var(--ink-3); font-style: italic; }
+.ci-foot { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; margin-top: 14px; }
+.ci-hist { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 12px; font-size: 13px; color: var(--ink-2); }
+.ci-hist .btn { font-size: 13px; padding: 4px 8px; }
+
 footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-between; align-items: center; font-size: 13px; color: var(--ink-2); border-top: 1px solid var(--line); padding-top: 14px; }
 
 @media (max-width: 980px) {
@@ -298,6 +320,12 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   .guide { grid-template-columns: minmax(0, 1fr); }
   .stat b { font-size: 22px; }
   .cat-line { grid-template-columns: minmax(0, 1fr) minmax(0, 48%); }
+  .ci-head { display: none; }
+  .ci-row { grid-template-columns: minmax(0, 1fr) 120px; grid-template-areas: "n a" "p d"; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .ci-row > .ci-n { grid-area: n; } .ci-row > .ci-a { grid-area: a; }
+  .ci-row > .ci-p { grid-area: p; text-align: left; font-size: 12px; color: var(--ink-2); } .ci-row > .ci-d { grid-area: d; }
+  .ci-row > .ci-p::before { content: 'Planned '; }
+  .ci-total { border-bottom: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
@@ -538,6 +566,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   var banner = blocked ? newerBanner() : null;          // {kind:'import'|'error'|'info', ...}
   var pendingDelete = null;
   var pendingDeleteCat = null;
+  var pendingCiDel = null;   // month of a check-in armed for deletion
+  var ciView = null;        // month the check-in card shows, or null for the default
+  var ciShown = null;       // month the card is currently showing (set while rendering)
   var pendingReset = false;
   var copyFallback = false;
 
@@ -582,7 +613,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     return n(l.goal.amount);
   }
   function goalInfo(l, c) {
-    var G = goalTarget(l, c), B = l.goal ? n(l.goal.saved) : 0, s = monthly(l);
+    var G = goalTarget(l, c), B = l.goal ? goalBalance(l) : 0, s = monthly(l);
     if (!l.goal || l.goal.mode === 'none' || G <= 0) return null;
     var info = { G: G, B: B, s: s, frac: Math.min(B / G, 1) };
     if (B >= G) { info.done = true; return info; }
@@ -615,6 +646,115 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     var t = 0;
     s.lines.forEach(function (l) { if (isSpend(l) && l.cat === id) t += monthly(l); });
     return t;
+  }
+
+  /* ---------- check-ins ---------- */
+  function round2(x) { return Math.round(x * 100) / 100; }
+  function findScn(id) { for (var i = 0; i < state.scenarios.length; i++) if (state.scenarios[i].id === id) return state.scenarios[i]; return null; }
+  function findCheckin(month) { for (var i = 0; i < state.checkins.length; i++) if (state.checkins[i].month === month) return state.checkins[i]; return null; }
+  function latestCheckin() { return state.checkins.length ? state.checkins[state.checkins.length - 1] : null; }
+  function goalLines(s) { return s.lines.filter(function (l) { return l.g === 'save' && l.goal && l.goal.mode !== 'none'; }); }
+
+  // Planned spending for a check-in month: one row per category, per line not in a category, then "Anything else".
+  function spendRows(s, month) {
+    var rows = [], byCat = {};
+    state.cats.forEach(function (ct) { var r = { key: ct.id, name: catName(ct.id), planned: 0, note: '' }; byCat[ct.id] = r; rows.push(r); });
+    s.lines.forEach(function (l) {
+      if (!isSpend(l)) return;
+      var m = monthly(l), r = l.cat ? byCat[l.cat] : null;
+      if (r) { r.planned += m; if (l.f === 'yr' && m >= 0.5) r.note = YEARLY_NOTE; }
+      else if (m >= 0.5) rows.push({ key: 'line:' + l.id, name: l.name, planned: m, note: l.f === 'yr' ? YEARLY_NOTE : '' });
+    });
+    rows.push({ key: 'other', name: 'Anything else', planned: 0, note: '' });
+    return rows;
+  }
+
+  // A goal row in a check-in belongs to a goal line by id, else by exact name (same money across scenarios).
+  function entryFor(ci, line) {
+    var byName = null;
+    for (var i = 0; i < ci.goals.length; i++) {
+      if (ci.goals[i].line === line.id) return ci.goals[i];
+      if (!byName && ci.goals[i].name === line.name) byName = ci.goals[i];
+    }
+    return byName;
+  }
+  // Newest check-in holding this goal; with `before`, only check-ins earlier than that month.
+  function latestGoalEntry(line, before) {
+    for (var i = state.checkins.length - 1; i >= 0; i--) {
+      var ci = state.checkins[i];
+      if (before && monthIndex(ci.month) >= monthIndex(before)) continue;
+      var r = entryFor(ci, line);
+      if (r) return { ci: ci, row: r };
+    }
+    return null;
+  }
+  // One stored number per goal: the latest check-in's balance, else "Saved so far".
+  function goalBalance(line) { var e = latestGoalEntry(line); return e ? n(e.row.balance) : n(line.goal && line.goal.saved); }
+  function setGoalBalance(line, v) {
+    var e = latestGoalEntry(line);
+    if (e) { e.row.balance = v; e.row.assumed = false; } else { line.goal.saved = v; }
+  }
+  function goalRow(l, month, c) {
+    var prev = latestGoalEntry(l, month);
+    var start = prev ? n(prev.row.balance) : n(l.goal.saved);
+    var months = prev ? Math.max(monthIndex(month) - monthIndex(prev.ci.month), 1) : 1;
+    var planned = monthly(l);
+    return { line: l.id, name: l.name, acct: l.acct, target: goalTarget(l, c), planned: planned, months: months,
+      start: start, balance: round2(start + planned * months), assumed: true };
+  }
+
+  function checkinDue(now) {
+    var pm = prevMonth(now), tm = thisMonth(now), last = latestCheckin();
+    var options = [pm, tm].filter(function (m) { return !last || monthIndex(m) > monthIndex(last.month); });
+    var due = !findCheckin(pm) && !findCheckin(tm) && options.length > 0;
+    return { due: due, month: options[0] || '', options: options };
+  }
+
+  function startCheckin(month, scnId) {
+    var s = findScn(scnId) || scn(), c = calc(s);
+    var ci = { month: month, scn: s.id, scnName: s.name || 'Untitled', startedAt: Date.now(), by: deviceName,
+      spend: spendRows(s, month).map(function (r) { return { key: r.key, name: r.name, planned: r.planned, actual: null, note: r.note }; }),
+      goals: goalLines(s).map(function (l) { return goalRow(l, month, c); }),
+      fund: null };
+    state.checkins.push(ci);
+    state.checkins.sort(function (a, b) { return monthIndex(a.month) - monthIndex(b.month); });
+    return ci;
+  }
+
+  // Re-take the plan snapshots for a check-in, keeping what was typed in.
+  function retakeCheckin(ci, scnId) {
+    var s = findScn(scnId) || scn(), c = calc(s), old = {};
+    ci.spend.forEach(function (r) { old[r.key] = r.actual; });
+    ci.scn = s.id; ci.scnName = s.name || 'Untitled';
+    ci.spend = spendRows(s, ci.month).map(function (r) {
+      return { key: r.key, name: r.name, planned: r.planned, actual: old[r.key] === undefined ? null : old[r.key], note: r.note };
+    });
+    var kept = ci.goals;
+    ci.goals = goalLines(s).map(function (l) {
+      var row = null;
+      kept.forEach(function (r) { if (!row && r.line === l.id) row = r; });
+      kept.forEach(function (r) { if (!row && r.name === l.name) row = r; });
+      if (!row) return goalRow(l, ci.month, c);
+      row.line = l.id; row.name = l.name; row.acct = l.acct; row.target = goalTarget(l, c); row.planned = monthly(l);
+      if (row.assumed) row.balance = round2(n(row.start) + row.planned * row.months);
+      return row;
+    });
+  }
+
+  function checkinTotals(ci) {
+    var t = { entered: 0, rows: ci.spend.length, planned: 0, actual: 0 };
+    ci.spend.forEach(function (r) { if (r.actual === null || r.actual === undefined) return; t.entered += 1; t.planned += n(r.planned); t.actual += n(r.actual); });
+    return t;
+  }
+  function diffText(d, suffix) {
+    if (d > 0.5) return '<span class="ci-over">' + money(d) + ' over' + (suffix || '') + '</span>';
+    if (d < -0.5) return '<span class="ci-under">' + money(-d) + ' under' + (suffix || '') + '</span>';
+    return 'on plan';
+  }
+  function checkinSummary(ci) {
+    var t = checkinTotals(ci);
+    if (!t.entered) return 'not started';
+    return diffText(t.actual - t.planned, ' plan') + (t.entered < t.rows ? ' (' + t.entered + ' of ' + t.rows + ')' : '');
   }
 
   function transfers(s, c) {
@@ -721,7 +861,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   }
 
   function editorHTML(s) {
-    var h = '';
+    var h = checkinHTML();
     h += '<section class="card" aria-label="Income">' +
       '<div class="card-head"><h2>Income</h2><span class="meta" data-out="income-total"></span></div>' +
       '<div class="fields">' +
@@ -770,6 +910,65 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
         '<input class="in" id="ao-' + a + '" data-scope="acct" data-id="' + a + '" data-field="note" value="' + esc(x.note) + '" aria-label="What ' + esc(x.name) + ' is for"></div>';
     });
     h += '</div></section>';
+    return h;
+  }
+
+  function checkinHTML() {
+    var d = checkinDue(new Date()), last = latestCheckin();
+    var ci = ciView ? findCheckin(ciView) : (d.due ? null : last);
+    ciShown = ci ? ci.month : null;
+    var title = ci ? monthLong(ci.month) + ' check-in' : (d.due ? monthLong(d.month) + ' check-in' : 'Monthly check-in');
+    var h = '<section class="card ci" aria-label="Monthly check-in" data-tour="checkin"><div class="card-head"><div><h2>' + esc(title) + '</h2>' +
+      '<p class="desc">' + (ci
+        ? 'Enter each category’s ' + esc(monthLabel(ci.month)) + ' total from Honeydue.'
+        : 'Once a month, copy each category’s total from Honeydue to see how the month went against the plan and whether your goals are on track.') + '</p></div>' +
+      (ci ? '<span class="meta" data-out="ci-status"></span>' : '') + '</div>';
+    if (d.due && !ci) {
+      h += '<div class="ci-start"><label class="field" for="ci-month">Month<select class="in" id="ci-month">' +
+        d.options.map(function (m) { return '<option value="' + m + '">' + esc(monthLabel(m)) + '</option>'; }).join('') +
+        '</select></label><button class="btn primary" type="button" data-act="ci-start">Start check-in</button></div>';
+    }
+    if (ci) h += ciFormHTML(ci, ci === last);
+    var others = state.checkins.filter(function (x) { return x !== ci; }).reverse();
+    if (others.length || ciView) {
+      h += '<div class="ci-hist"><span>' + (ci ? 'Other months:' : 'Earlier months:') + '</span>' +
+        others.map(function (x) {
+          return '<button class="btn ghost" type="button" data-act="ci-view" data-id="' + x.month + '">' + esc(monthLabel(x.month)) + ' · <span data-out="cih-' + x.month + '"></span></button>';
+        }).join('') +
+        (ciView ? '<button class="btn ghost" type="button" data-act="ci-view" data-id="">Close</button>' : '') + '</div>';
+    }
+    return h + '</section>';
+  }
+
+  function ciFormHTML(ci, isLatest) {
+    var h = '<div class="ci-scn">';
+    if (isLatest) {
+      var opts = state.scenarios.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === ci.scn ? ' selected' : '') + '>' + esc(x.name || 'Untitled') + '</option>'; }).join('');
+      if (!findScn(ci.scn)) opts = '<option value="' + esc(ci.scn) + '" selected>' + esc(ci.scnName) + ' (deleted)</option>' + opts;
+      h += '<label for="ci-scn">Compared with <select class="in" id="ci-scn" data-scope="ci" data-field="scn">' + opts + '</select></label>' +
+        '<button class="btn ghost" type="button" data-act="ci-retake">Use current plan amounts</button>';
+    } else {
+      h += 'Compared with <b>' + esc(ci.scnName) + '</b>';
+    }
+    h += '</div><div class="ci-rows"><div class="ci-head" aria-hidden="true"><span>Category</span><span class="r">Planned</span><span class="r">Actual</span><span class="r">Difference</span></div>';
+    ci.spend.forEach(function (r, i) {
+      h += '<div class="ci-row"><span class="ci-n">' + esc(r.name) + (r.note ? '<small>' + esc(r.note) + '</small>' : '') + '</span>' +
+        '<span class="ci-p r">' + money(r.planned) + '</span>' +
+        '<span class="ci-a amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="cia-' + i + '" data-scope="ci" data-field="actual" data-id="' + esc(r.key) + '" value="' + (r.actual === null || r.actual === undefined ? '' : esc(r.actual)) + '" aria-label="' + esc(monthLong(ci.month)) + ' total for ' + esc(r.name) + '"></span>' +
+        '<span class="ci-d r" data-out="cid-' + esc(r.key) + '"></span></div>';
+    });
+    h += '<div class="ci-row ci-total"><span class="ci-n" data-out="ci-total"></span><span class="ci-p r" data-out="ci-tp"></span><span class="ci-a r" data-out="ci-ta"></span><span class="ci-d r" data-out="ci-td"></span></div></div>';
+    if (ci.goals.length) {
+      h += '<h3 class="ci-sub">Savings balances at the end of ' + esc(monthLong(ci.month)) + '</h3><div class="ci-goals">';
+      ci.goals.forEach(function (g) {
+        h += '<div class="ci-goal"><span class="ci-n">' + esc(g.name) + '<span class="tag">' + esc(acctName(g.acct)) + '</span></span>' +
+          '<span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="cig-' + esc(g.line) + '" data-scope="cig" data-field="balance" data-id="' + esc(g.line) + '" value="' + esc(round2(n(g.balance))) + '" aria-label="' + esc(g.name) + ' balance at the end of ' + esc(monthLong(ci.month)) + '"></span>' +
+          '<span class="ci-meta"><span>planned +' + money(n(g.planned) * (g.months || 1)) + '</span><span class="ci-assumed" data-out="cias-' + esc(g.line) + '"></span><span data-out="cigs-' + esc(g.line) + '"></span></span></div>';
+      });
+      h += '</div><p class="note" data-out="ci-recon"></p>';
+    }
+    h += '<div class="ci-foot"><span></span><button class="btn ghost danger" type="button" data-act="ci-del" data-id="' + ci.month + '">' +
+      (pendingCiDel === ci.month ? 'Click again to delete this check-in' : 'Delete this check-in') + '</button></div>';
     return h;
   }
 
@@ -823,7 +1022,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       h += '<label for="gn-' + l.id + '"><input class="in months" type="number" inputmode="numeric" min="1" max="24" step="1" id="gn-' + l.id + '" data-scope="goal" data-id="' + l.id + '" data-field="months" value="' + esc(g.months) + '"> months</label>';
     }
     if (g.mode !== 'none') {
-      h += '<label for="gs-' + l.id + '">Saved so far <span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="50" id="gs-' + l.id + '" data-scope="goal" data-id="' + l.id + '" data-field="saved" value="' + esc(g.saved) + '"></span></label>' +
+      h += '<label for="gs-' + l.id + '">Saved so far <span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="50" id="gs-' + l.id + '" data-scope="goal" data-id="' + l.id + '" data-field="saved" value="' + esc(round2(goalBalance(l))) + '"></span></label>' +
         '<span class="goal-out" data-out="g-' + l.id + '"></span>';
     }
     return h + '</div>';
@@ -845,6 +1044,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       setOut('gp-' + G.key, c.I > 0 ? pct(c.g[G.key] / c.I) + ' of income' : '');
     });
     state.cats.forEach(function (ct) { setOut('ct-' + ct.id, money(catTotal(s, ct.id)) + ' / mo'); });
+    refreshCheckin();
     s.lines.forEach(function (l) {
       var m = monthly(l);
       if (isSpend(l)) setOut('ln-' + l.id, lineLabel(l));
@@ -859,13 +1059,41 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
           else t = money(gi.G) + ' by ' + gi.date + ' (' + gi.months + ' mo)';
         }
         setOut('g-' + l.id, t);
+        var gs = document.getElementById('gs-' + l.id);
+        if (gs && l.goal && document.activeElement !== gs && n(gs.value) !== round2(goalBalance(l))) gs.value = round2(goalBalance(l));
       }
     });
     renderSaveStatus();
   }
 
+  function refreshCheckin() {
+    state.checkins.forEach(function (x) { setOut('cih-' + x.month, checkinSummary(x)); });
+    var ci = ciShown ? findCheckin(ciShown) : null;
+    if (!ci) return;
+    ci.spend.forEach(function (r) {
+      setOut('cid-' + r.key, r.actual === null || r.actual === undefined ? '<span class="faint">—</span>' : diffText(n(r.actual) - n(r.planned)));
+    });
+    var t = checkinTotals(ci);
+    setOut('ci-total', 'Total <span class="faint">(' + t.entered + ' of ' + t.rows + ' entered)</span>');
+    setOut('ci-tp', money(t.planned));
+    setOut('ci-ta', t.entered ? money(t.actual) : '—');
+    setOut('ci-td', t.entered ? diffText(t.actual - t.planned, ' plan') : '');
+    setOut('ci-status', t.entered === t.rows ? '<span class="chip ok">Done</span>' : '<span class="chip warn">' + t.entered + ' of ' + t.rows + ' entered</span>');
+    var byAcct = {};
+    ci.goals.forEach(function (g) {
+      setOut('cias-' + g.line, g.assumed ? 'assumed from plan' : '');
+      var el = document.getElementById('cig-' + g.line);
+      if (el && document.activeElement !== el && n(el.value) !== round2(n(g.balance))) el.value = round2(n(g.balance));
+      byAcct[g.acct] = byAcct[g.acct] || { sum: 0, k: 0 };
+      byAcct[g.acct].sum += n(g.balance); byAcct[g.acct].k += 1;
+    });
+    setOut('ci-recon', Object.keys(byAcct).filter(function (a) { return byAcct[a].k > 1; }).map(function (a) {
+      return esc(acctName(a)) + ' holds ' + money(byAcct[a].sum) + ' across these. Check that this matches the account’s balance.';
+    }).join(' '));
+  }
+
   function renderSummary(s, c) {
-    var st = status(c);
+    var st = status(c), due = checkinDue(new Date());
     var scale = Math.max(c.I, c.P, 1);
     var leftPos = Math.max(c.left, 0);
     function w(v) { return (v / scale * 100).toFixed(2) + '%'; }
@@ -874,7 +1102,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
         '<div class="stat"><span>Take-home</span><b>' + money(c.I) + '</b></div>' +
         '<div class="stat"><span>Planned</span><b>' + money(c.P) + '</b></div>' +
         '<div class="stat"><span>Savings rate</span><b>' + pct(c.rate) + '</b></div>' +
-        '<div class="stat"><span>Status</span><span class="chip ' + st.tone + '">' + esc(st.text) + '</span></div>' +
+        '<div class="stat"><span>Status</span><span class="chip ' + st.tone + '">' + esc(st.text) + '</span>' +
+          (due.due ? '<span class="chip warn">' + esc(monthLong(due.month)) + ' check-in not done</span>' : '') + '</div>' +
       '</div>' +
       '<div class="stack-wrap"><div class="stack" role="img" aria-label="Necessities ' + money(c.g.need) + ', savings ' + money(c.g.save) + ', variable ' + money(c.g.want) + ', unassigned ' + money(leftPos) + '">' +
         '<div class="seg-need" style="width:' + w(c.g.need) + '"></div>' +
@@ -1158,9 +1387,19 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     var s = scn(), id = t.getAttribute('data-id'), f = t.getAttribute('data-field'), v = t.value;
     var isNum = t.type === 'number';
     if (sc === 'device') { deviceName = v; lsSet(NAME_KEY, v); return; }
+    if (sc === 'ci' || sc === 'cig') {
+      var shown = ciShown ? findCheckin(ciShown) : null; if (!shown || t.tagName === 'SELECT') return;
+      if (sc === 'ci') {
+        shown.spend.forEach(function (r) { if (r.key === id) r.actual = String(v).trim() === '' ? null : n(v); });
+      } else {
+        shown.goals.forEach(function (g) { if (g.line === id) { g.balance = n(v); g.assumed = false; } });
+      }
+      changed(); refresh();
+      return;
+    }
     if (sc === 'line') { var l = findLine(s, id); if (!l) return; if (t.tagName === 'SELECT') return; l[f] = isNum ? n(v) : v; }
     else if (sc === 'inc') { var x = findInc(s, id); if (!x) return; x[f] = isNum ? n(v) : v; }
-    else if (sc === 'goal') { var lg = findLine(s, id); if (!lg) return; if (f === 'mode') return; lg.goal = lg.goal || newGoal(); lg.goal[f] = n(v); }
+    else if (sc === 'goal') { var lg = findLine(s, id); if (!lg) return; if (f === 'mode') return; lg.goal = lg.goal || newGoal(); if (f === 'saved') setGoalBalance(lg, n(v)); else lg.goal[f] = n(v); }
     else if (sc === 'scn') { if (f === 'depositTo') return; s[f] = v; }
     else if (sc === 'cat') {
       var ct = findCat(id); if (!ct) return;
@@ -1179,6 +1418,11 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   root.addEventListener('change', function (e) {
     var t = e.target, sc = t.getAttribute('data-scope'); if (!sc || t.tagName !== 'SELECT') return;
     var s = scn(), id = t.getAttribute('data-id'), f = t.getAttribute('data-field'), v = t.value;
+    if (sc === 'ci' && f === 'scn') {
+      var cs = ciShown ? findCheckin(ciShown) : null;
+      if (cs) { retakeCheckin(cs, v); changed(); rerenderEditor('ci-scn'); }
+      return;
+    }
     if (sc === 'line') { var l = findLine(s, id); if (l) l[f] = v; changed(); refresh(); }
     else if (sc === 'scn') { s[f] = v; changed(); refresh(); }
     else if (sc === 'goal') {
@@ -1202,6 +1446,27 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (act !== 'del-scn') pendingDelete = null;
     if (act !== 'reset') pendingReset = false;
     if (act !== 'del-cat') pendingDeleteCat = null;
+    if (act !== 'ci-del') pendingCiDel = null;
+    if (act === 'ci-start') {
+      var mSel = document.getElementById('ci-month');
+      if (!mSel || !mSel.value) return;
+      startCheckin(mSel.value, state.active); ciView = null; changed(); rerenderEditor('cia-0');
+      return;
+    }
+    if (act === 'ci-view') { ciView = b.getAttribute('data-id') || null; rerenderEditor(null); return; }
+    if (act === 'ci-retake') {
+      var cr = ciShown ? findCheckin(ciShown) : null;
+      if (cr) { retakeCheckin(cr, cr.scn); changed(); rerenderEditor(null); }
+      return;
+    }
+    if (act === 'ci-del') {
+      var dm = b.getAttribute('data-id');
+      if (pendingCiDel === dm) {
+        state.checkins = state.checkins.filter(function (x) { return x.month !== dm; });
+        pendingCiDel = null; ciView = null; changed(); rerenderEditor(null);
+      } else { pendingCiDel = dm; rerenderEditor(null); }
+      return;
+    }
     if (act === 'tab') { state.active = b.getAttribute('data-id'); copyFallback = false; persist(); renderAll(); return; }
     if (act === 'export') { exportPlan(); return; }
     if (act === 'import') { startImport(); return; }
@@ -1281,7 +1546,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   window.__hbp = {
     migrate: migrate, validPlan: validPlan, monthIndex: monthIndex, monthKey: monthKey,
     thisMonth: thisMonth, prevMonth: prevMonth, state: function () { return state; },
-    honeydueText: function () { return honeydueText(scn()); }
+    honeydueText: function () { return honeydueText(scn()); },
+    spendRows: function (m) { return spendRows(scn(), m); }
   };
 
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {

@@ -330,6 +330,61 @@ section('categories', async () => {
   await phone.ctx.close();
 });
 
+const cardText = (page, tour) => page.evaluate((t) => { const el = document.querySelector(`[data-tour="${t}"]`); return el ? el.textContent : ''; }, tour);
+const values = (page, sel) => page.$$eval(sel, (els) => els.map((e) => e.value));
+const countText = (page, sel, text) => page.$$eval(sel, (els, t) => els.filter((e) => e.textContent.includes(t)).length, text);
+
+section('checkin', async () => {
+  const { ctx, page } = await openPage({ date: '2026-11-16T12:00' });
+  const head = () => page.locator('[data-tour="checkin"] h2').innerText();
+  check('a due check-in names last month', (await head()).includes('October check-in'), await head());
+  check('the summary says the check-in is not done', (await page.locator('#summary').innerText()).includes('October check-in not done'));
+
+  await page.click('[data-act="ci-start"]');
+  const actual = 'input[data-scope="ci"][data-field="actual"]';
+  check('starting lists every category, uncategorised line and "Anything else"', (await page.locator(actual).count()) === 10, String(await page.locator(actual).count()));
+  const bal = await values(page, 'input[data-scope="cig"]');
+  check('goal balances are pre-filled from the plan', bal.join() === '700,300,400', bal.join());
+  check('pre-filled balances are marked as assumed', (await countText(page, '.ci-assumed', 'assumed from plan')) === 3);
+
+  await page.locator(actual).first().click();
+  await page.keyboard.type('125');
+  const focus = await page.evaluate(() => ({ field: document.activeElement.dataset.field, value: document.activeElement.value }));
+  check('typing an actual keeps focus and every keystroke', focus.field === 'actual' && focus.value === '125', JSON.stringify(focus));
+  check('one entered row is counted', (await cardText(page, 'checkin')).includes('1 of 10 entered'));
+  await page.locator(actual).nth(1).fill('0');
+  check('a $0 actual counts as entered', (await cardText(page, 'checkin')).includes('2 of 10 entered'));
+  await page.locator(actual).nth(1).fill('');
+  check('a cleared actual counts as not entered', (await cardText(page, 'checkin')).includes('1 of 10 entered'));
+
+  const ef = await lineId(page, 'Emergency fund');
+  await page.fill(`#cig-${ef}`, '650');
+  await page.waitForTimeout(500);
+  await page.reload({ waitUntil: 'networkidle' });
+  check('a corrected balance survives a reload', (await page.inputValue(`#cig-${ef}`)) === '650');
+  check('"Saved so far" shows the check-in balance', (await page.inputValue(`#gs-${ef}`)) === '650');
+  check('the summary chip clears once the month is checked in', !(await page.locator('#summary').innerText()).includes('check-in not done'));
+
+  await page.clock.setFixedTime(new Date('2026-12-05T12:00'));
+  await page.reload({ waitUntil: 'networkidle' });
+  check('next month is due a month later', (await head()).includes('November check-in'), await head());
+  await page.click('[data-act="ci-start"]');
+  check('the next check-in starts from the corrected balance (no drift)', (await page.inputValue(`#cig-${ef}`)) === '1350');
+  await page.click('[data-act="ci-del"]');
+  await page.click('[data-act="ci-del"]');
+  check('deleting a check-in (clicked twice) falls back to the earlier balance', (await page.inputValue(`#gs-${ef}`)) === '650');
+
+  const groc = await catId(page, 'Groceries');
+  await page.click(`[data-act="del-cat"][data-id="${groc}"]`);
+  await page.click(`[data-act="del-cat"][data-id="${groc}"]`);
+  await page.click('[data-act="del-scn"]');
+  await page.click('[data-act="del-scn"]');
+  await page.click('[data-act="ci-view"][data-id="2026-10"]');
+  const oct = await cardText(page, 'checkin');
+  check('an old check-in still shows a deleted category and scenario', oct.includes('Groceries') && oct.includes('Now'), oct.slice(0, 200));
+  await ctx.close();
+});
+
 /* ---------------- runner ---------------- */
 
 (async () => {
