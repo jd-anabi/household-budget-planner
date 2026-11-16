@@ -134,12 +134,17 @@ CheckIn = {
       // name, planned: snapshots taken when the check-in starts
       // actual: number, or null when not entered yet
       // yearly: true if the row includes any yearly line (used for a note)
-  goals: [{ line, name, acct, target, planned, months, start, balance }]
+  goals: [{ line, name, acct, target, planned, months, start, balance, assumed }]
       // line: goal line id; name/acct/target/planned: snapshots
-      // months: how many months this check-in covers (see pace below)
-      // start: the goal's balance before this check-in; balance: balance at the end of `month`
+      // months: how many months this check-in covers (see section 3)
+      // start: the goal's balance before this check-in (fixed once the check-in exists)
+      // balance: balance at the end of `month`
+      // assumed: true while the balance is the plan-based pre-fill; false once a person edits it
 }
 ```
+
+A goal's **current balance** is the `balance` in the latest check-in that includes it. Only a goal
+with no check-in uses `goal.saved`. Check-ins never rewrite or delete `goal.saved` (section 3).
 
 Naming of the storage key stays `household-budget-planner:plan:v1` (it is an address, not a
 version; renaming it would mean moving data).
@@ -150,10 +155,18 @@ version; renaming it would mean moving data).
 the user creates categories.
 
 **Safety:**
+- **Rollback guard, shipped first.** Today's app accepts only `v === 1`. Given a v2 plan, it shows
+  the example plan and overwrites the stored plan on the first edit, tab click or export. So the
+  first commit is a small change to the *v1* app, still on data version 1: if the stored plan or
+  an imported file has `v > 1`, it shows "This plan was saved by a newer version of the app.
+  Reload while online to update." and never persists until reload. The v2 commits go on top of it.
+  A rollback is then a plain revert of the v2 commits, which lands on the guarded v1 app, so no
+  device overwrites a v2 plan.
 - Before migrating a stored v1 plan, copy the raw stored JSON to
-  `household-budget-planner:plan:v1-backup` (only if that key is empty). This lets a rollback of
-  the app recover the plan.
-- A stored plan or an imported file with `v` greater than 2 is never replaced or overwritten.
+  `household-budget-planner:plan:v1-backup` (only if that key is empty). This protects against a
+  bug in the migration itself. Restoring from it is manual (by a person or a later release); no
+  code reads it for now.
+- In the v2 app, a stored plan or an imported file with `v` greater than 2 is never replaced or overwritten.
   On load: show an error banner ("This plan was saved by a newer version of the app. Reload while
   online to update.") and do not persist anything until reload. On import: reject the file with
   the same message instead of "That file isn't a budget plan file."
@@ -211,11 +224,12 @@ them any time; the Honeydue limits update as you go.
 **Editor column card "Monthly check-in"**, first in the editor column (directly under the summary).
 
 States:
-- **Due:** no check-in exists for the previous calendar month. The card shows
+- **Due:** neither the previous nor the current calendar month has a check-in. The card shows
   "October check-in" with a "Start" button and a month select (previous month, the default, or
-  the current month). The summary's status area also shows a chip "October check-in not done".
+  the current month; never a month at or before the latest check-in, so no back-filling).
+  The summary's status area also shows a chip "October check-in not done".
 - **In progress / done:** the latest check-in is shown as a form (below). It is "done" when every
-  spend row has an actual and every goal has a balance; otherwise it shows "3 of 9 entered".
+  spend row has an actual; otherwise it shows "3 of 9 entered". (Goal rows always hold a value.)
 - **History:** below the form, a list of earlier months ("September · $40 over plan"). Each opens
   the same form for that month (editable). Each month can be deleted with click-twice confirm.
 
@@ -254,17 +268,24 @@ Math (all amounts monthly dollars, rounded to whole dollars for display):
 - Total: sums over rows **with an actual entered**; the label says how many rows are entered.
 - Blank actual = not entered (`null`), not zero.
 
-Goal balances:
-- Each goal row's balance is pre-filled when the check-in starts with
-  `start + planned × months` (assume the plan was followed; the user corrects only exceptions).
-  `start` is the goal's current "Saved so far".
-- Editing a balance also sets that goal's "Saved so far" (`goal.saved`) in the compared scenario,
-  and in goals with the same name in other scenarios (it is the same real money). Only the latest
-  check-in writes to "Saved so far"; editing an older month does not.
+Goal balances (one stored number per goal, so nothing can drift):
+- A goal's current balance is the `balance` in the latest check-in that includes it, matched by
+  line id, then by exact name (so a same-named goal in another scenario shows the same real money).
+  Only a goal with no check-in uses `goal.saved`.
+- The editor's "Saved so far" input shows the current balance. If the goal has a check-in, typing
+  there edits that latest check-in's `balance` (and sets `assumed: false`). Otherwise it edits
+  `goal.saved` as today.
+- Starting a check-in stores, per goal: `start` = the current balance; `months` = months since that
+  goal's previous check-in (`monthIndex(month) − monthIndex(previousMonth)`), or 1 for its first;
+  `balance` = `start + planned × months`; `assumed: true`. The user corrects only exceptions.
+  Assumed balances show "assumed from plan" in the form, and the goal's status chip adds
+  "(assumed)" while its current balance is assumed.
+- Re-taking snapshots ("Compared with" or "Use current plan amounts") keeps `start` and `months`.
+  It re-takes name/acct/target/planned, and recomputes `balance` only for rows still assumed.
+- Deleting a check-in needs no restore step: the current balance falls back to the previous
+  check-in that includes the goal, or to `goal.saved`.
 - Under the goal rows, for each account holding two or more goals, show the sum of their balances
   with "Check that this matches the account's balance." No input.
-- `months` for a goal row = months since that goal's previous check-in
-  (`monthIndex(month) − monthIndex(previousMonth)`), or 1 for its first check-in.
 
 ### 4. Goal tracking
 
@@ -277,9 +298,9 @@ which desktop Safari and Firefox lack). Years: current year to current year + 10
 
 **Status** (shown in the side column "Savings goals" card as a chip, and on the check-in's goal rows):
 
-Let $B$ be the goal's balance and $m$ the base month: the latest check-in month that includes this
-goal; with no check-in, $B$ = "Saved so far" and $m$ = the previous calendar month. Let $s$ be the
-current planned monthly amount.
+Let $B$ be the goal's current balance (section 3) and $m$ the base month: the latest check-in month
+that includes this goal; with no check-in, $B$ = `goal.saved` and $m$ = the previous calendar month.
+Let $s$ be the current planned monthly amount.
 
 - $B \ge G$: **Reached** (`--ok`).
 - **With a date** `by`: $n = \text{monthIndex(by)} - \text{monthIndex}(m)$ contributions remain.
@@ -341,6 +362,10 @@ to earlier check-ins by line id first, then by exact name.
 
 ## Testing
 
+At the rollback-guard commit (still v1): put a `v: 2` plan in localStorage, load, check the
+newer-version banner, make an edit, and check the stored plan is byte-for-byte unchanged; importing
+a `v: 2` file shows the newer-version message. Keep this check runnable later against that commit.
+
 Extend `tests/smoke.js` (keep it dependency-free):
 - `DATA_VERSION = 2`.
 - Commit `tests/fixtures/plan-v1.json`: a v1 export of the current example plan (generic data).
@@ -350,7 +375,10 @@ Extend `tests/smoke.js` (keep it dependency-free):
   migration and that `…:plan:v1-backup` holds the original.
 - A file with `v: 3` is rejected with the newer-version message.
 - Categories: rename a category and check the Honeydue list shows the new name and summed total.
-- Check-in: start, enter actuals and a goal balance, reload, values kept; goal's "Saved so far" updated.
+- Check-in: start, check goal balances are pre-filled as assumed; enter actuals and correct one
+  goal balance; reload, values kept; "Saved so far" shows the corrected balance. Start the next
+  month and check its `start` equals the previous balance (no drift). Delete it and check the
+  balance falls back.
 - Goal date: set a date that is unreachable at the planned amount and check the "Needs … more" chip.
 - Tour: start from the Tour button, step to the end, check every step had a visible target or was a
   no-target step, close, focus returns to the Tour button; no console errors.
@@ -358,6 +386,19 @@ Extend `tests/smoke.js` (keep it dependency-free):
 
 Manual: look at the screenshots (laptop and phone, light and dark) for legibility of the new cards,
 chips and the tour.
+
+## Calls made without the user (check these)
+
+- Categories are one list for the whole plan, edited in a card in the main column; lines are
+  assigned there, not in each line's row.
+- Check-ins are stored in the plan file, so both partners see them after export and import.
+- The check-in card sits at the top of the main column. One check-in per month, no back-filling.
+- Savings balances in a check-in start as "assumed from plan"; you correct only what differs.
+- A goal's balance is shared by same-named goals across scenarios (it's the same money).
+- An "Anything else" row catches spending in Honeydue categories that aren't in the plan.
+- Yearly costs count at 1/12 a month, with a note to expect a spike when they're paid.
+- The example plan gains example categories and a dated move-in goal.
+- A rollback guard ships first; a backup of the pre-update plan is kept on each device.
 
 ## Left to the builder
 
