@@ -6,7 +6,12 @@ A small, installable web app for planning a monthly household budget:
 - See the **payday transfer plan**: how much to move from the account your paychecks land in to joint checking, joint savings, personal savings, and investing.
 - Track **savings goals** (for example, an emergency fund of N months of necessities) and when you'll reach them.
 - Compare **scenarios** side by side (for example, "now" vs. "both working + rent").
-- Copy a list of monthly **category limits** to enter into a tracking app such as Honeydue.
+- Group lines into your **Honeydue categories** and copy the monthly limit for each one.
+- Do a **monthly check-in**: type each category's actual total from Honeydue and your savings balances,
+  and see what ran over or under and whether each goal is on track (goals can have a "by" date).
+- Handle **yearly costs**: set the month each one is paid, set aside a twelfth each payday, and see a
+  12-month calendar that warns if a bill would come before the money is there.
+- Take the **tour** (the Tour button) for a step-by-step explanation of each part.
 
 ## Privacy
 

@@ -40,6 +40,8 @@
   --ok-bg: #e5f3e6;
   --warn-bg: #fbf0dc;
   --bad-bg: #fbe5e3;
+  --dim: rgba(15, 18, 30, 0.5);
+  --spot: var(--need);
   --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
   --font-body: "Public Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
   --radius: 10px;
@@ -65,6 +67,8 @@
     --ok-bg: #1c2e21;
     --warn-bg: #33281a;
     --bad-bg: #3a1e1e;
+    --dim: rgba(0, 0, 0, 0.62);
+    --spot: var(--need);
     color-scheme: dark;
   }
 }
@@ -87,6 +91,8 @@
   --ok-bg: #1c2e21;
   --warn-bg: #33281a;
   --bad-bg: #3a1e1e;
+  --dim: rgba(0, 0, 0, 0.62);
+  --spot: var(--need);
   color-scheme: dark;
 }
 
@@ -228,6 +234,9 @@ input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-i
 .goal .amt .cur { font-size: 13px; }
 .goal .months { width: 56px; text-align: right; }
 .goal-out { font-weight: 600; color: var(--ink); }
+.goal-by { display: inline-flex; align-items: center; gap: 6px; }
+.gl-st { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.gl-st .chip { font-size: 12px; }
 
 .add { align-self: flex-start; }
 
@@ -257,6 +266,27 @@ input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-i
 .hd td.r { text-align: right; font-weight: 600; white-space: nowrap; padding-left: 10px; }
 .hd tr.gh td { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-3); padding-top: 12px; border-bottom: none; }
 .tag { font-size: 11px; color: var(--ink-3); display: block; }
+.hd td:first-child { overflow-wrap: anywhere; }
+.hd .hd-lines, .hd .hd-note { display: block; font-size: 11px; color: var(--ink-3); }
+.hd .hd-note { color: var(--warn); }
+.hd-after { margin-top: 8px; }
+.hd td.r.neg { color: var(--warn); }
+.yr-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px minmax(0, 190px); gap: 8px; align-items: center; font-size: 14px; }
+.yr-row label { overflow-wrap: anywhere; }
+.yr-row .r { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.yr-head { font-size: 12px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.04em; }
+.yr-rows { margin-top: 12px; }
+.fund-tbl { margin-top: 12px; }
+.fund-st { font-size: 13px; font-weight: 600; padding: 8px 10px; border-radius: 8px; margin-top: 10px; }
+.fund-st.ok { background: var(--ok-bg); color: var(--ok); }
+.fund-st.warn { background: var(--warn-bg); color: var(--warn); }
+
+.cat-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
+.cat-row .mo { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cat-lines { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.cat-line { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 220px); gap: 8px; align-items: center; font-size: 14px; }
+.cat-line label { overflow-wrap: anywhere; }
+.cat-line .faint { font-size: 12px; }
 textarea.copybox { width: 100%; min-height: 120px; font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink); background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
 
 .cmp-wrap { overflow-x: auto; }
@@ -269,6 +299,28 @@ textarea.copybox { width: 100%; min-height: 120px; font: 13px/1.4 ui-monospace, 
 .cmp td.pos { color: var(--warn); font-weight: 600; }
 
 .acct-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+.ci-start { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.ci-start .field { min-width: 160px; }
+.ci-scn { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; color: var(--ink-2); margin-bottom: 12px; }
+.ci-scn .in { width: auto; padding: 4px 6px; font-size: 13px; }
+.ci-rows { display: flex; flex-direction: column; gap: 6px; }
+.ci-head, .ci-row { display: grid; grid-template-columns: minmax(0, 1fr) 84px 120px 120px; gap: 8px; align-items: center; font-size: 14px; }
+.ci-head { font-size: 12px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.04em; }
+.ci-head .r, .ci-row .r { text-align: right; font-variant-numeric: tabular-nums; }
+.ci-n { overflow-wrap: anywhere; }
+.ci-n small { display: block; font-size: 11px; color: var(--ink-3); }
+.ci-total { border-top: 1px solid var(--line); padding-top: 8px; font-weight: 600; }
+.ci-over { color: var(--warn); font-weight: 600; }
+.ci-under { color: var(--ok); font-weight: 600; }
+.ci-sub { font-family: var(--font-display); font-size: 15px; font-weight: 700; margin: 18px 0 8px; }
+.ci-goals { display: flex; flex-direction: column; gap: 10px; }
+.ci-goal { display: grid; grid-template-columns: minmax(0, 1fr) 130px; gap: 4px 10px; align-items: center; font-size: 14px; }
+.ci-goal .ci-meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: 12px; color: var(--ink-2); }
+.ci-assumed { color: var(--ink-3); font-style: italic; }
+.ci-foot { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; margin-top: 14px; }
+.ci-hist { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 12px; font-size: 13px; color: var(--ink-2); }
+.ci-hist .btn { font-size: 13px; padding: 4px 8px; }
 
 footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-between; align-items: center; font-size: 13px; color: var(--ink-2); border-top: 1px solid var(--line); padding-top: 14px; }
 
@@ -286,6 +338,16 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   .row .rbar { display: none; }
   .guide { grid-template-columns: minmax(0, 1fr); }
   .stat b { font-size: 22px; }
+  .cat-line { grid-template-columns: minmax(0, 1fr) minmax(0, 48%); }
+  .ci-head { display: none; }
+  .yr-head { display: none; }
+  .yr-row { grid-template-columns: minmax(0, 1fr) 80px; }
+  .yr-row select { grid-column: 1 / -1; }
+  .ci-row { grid-template-columns: minmax(0, 1fr) 120px; grid-template-areas: "n a" "p d"; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .ci-row > .ci-n { grid-area: n; } .ci-row > .ci-a { grid-area: a; }
+  .ci-row > .ci-p { grid-area: p; text-align: left; font-size: 12px; color: var(--ink-2); } .ci-row > .ci-d { grid-area: d; }
+  .ci-row > .ci-p::before { content: 'Planned '; }
+  .ci-total { border-bottom: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
@@ -310,6 +372,20 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 .sync-meta { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); }
 .sync-meta b { color: var(--ink); font-weight: 600; }
 .how { margin: 0; padding-left: 18px; font-size: 13px; color: var(--ink-2); display: flex; flex-direction: column; gap: 4px; }
+.tour-block { position: fixed; inset: 0; z-index: 50; }
+.tour-block.dim { background: var(--dim); }
+.tour-spot { position: fixed; z-index: 51; border-radius: 12px; pointer-events: none;
+  box-shadow: 0 0 0 3px var(--spot), 0 0 0 100vmax var(--dim); transition: top 0.25s, left 0.25s, width 0.25s, height 0.25s; }
+.tour { position: fixed; z-index: 52; left: 0; right: 0; bottom: 0; display: flex; justify-content: center;
+  padding: 0 12px max(12px, env(safe-area-inset-bottom)); pointer-events: none; }
+.tour-in { pointer-events: auto; width: 100%; max-width: 640px; background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); padding: 12px 16px 14px; }
+.tour-top { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.tour h2 { font-size: 17px; margin: 2px 0 4px; }
+.tour p { margin: 0 0 12px; font-size: 14px; color: var(--ink-2); line-height: 1.45; }
+.tour-btns { display: flex; justify-content: flex-end; gap: 8px; }
+.tour[hidden], .tour-spot[hidden], .tour-block[hidden] { display: none; }
+[data-tour] { scroll-margin-top: 12px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 </style>
 </head>
@@ -323,7 +399,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   var PLAN_KEY = 'household-budget-planner:plan:v1';
   var NAME_KEY = 'household-budget-planner:name';
   var APP_ID = 'household-budget-planner';
-  var DATA_V = 1;
+  var DATA_V = 2;
+  var BACKUP_KEY = 'household-budget-planner:plan:v1-backup';
   var NEWER_MSG = 'This plan was saved by a newer version of the app. Reload while online to update.';
   var FREQ = { mo: { label: 'monthly', k: 1 }, wk: { label: 'weekly', k: 52 / 12 }, yr: { label: 'yearly', k: 1 / 12 } };
   var GROUPS = [
@@ -338,16 +415,59 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   var seq = 0;
   function nid() { seq += 1; return 'i' + Date.now().toString(36) + seq.toString(36); }
+  function newGoal() { return { mode: 'none', months: 6, amount: 0, saved: 0, by: '' }; }
   function L(g, name, amt, f, acct, goal) {
     var o = { id: nid(), g: g, name: name, amt: amt, f: f || 'mo', acct: acct };
-    if (goal) o.goal = goal;
+    if (g === 'need' || g === 'want') { o.cat = ''; o.due = 0; }
+    if (goal) { if (goal.by === undefined) goal.by = ''; o.goal = goal; }
     return o;
   }
 
+  /* ---------- months ('YYYY-MM', local time) ---------- */
+  var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  function pad2(x) { return (x < 10 ? '0' : '') + x; }
+  function monthIndex(key) { var p = String(key).split('-'); return parseInt(p[0], 10) * 12 + parseInt(p[1], 10) - 1; }
+  function monthKey(i) { var y = Math.floor(i / 12); return y + '-' + pad2(i - y * 12 + 1); }
+  function thisMonth(d) { d = d || new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1); }
+  function prevMonth(d) { return monthKey(monthIndex(thisMonth(d)) - 1); }
+  function monthLong(key) { var i = monthIndex(key); return MONTHS[((i % 12) + 12) % 12]; }
+  function monthLabel(key) { return monthLong(key).slice(0, 3) + ' ' + Math.floor(monthIndex(key) / 12); }
+
   /* Example plan shown on first open. Real numbers live only on your devices and in plan files you export. */
   function defaults() {
+    var cats = ['Bills & utilities', 'Groceries', 'Transportation', 'Eating out & fun', 'Personal', 'Gifts']
+      .map(function (name) { return { id: nid(), name: name }; });
+    var CAT_OF = {
+      'Rent (not paying yet)': 0, 'Rent': 0, 'Utilities (electric, gas, water)': 0, 'Internet': 0, 'Phone': 0, 'Insurance (car, renters)': 0,
+      'Groceries & household supplies': 1,
+      'Gas, transit & parking': 2, 'Car registration & maintenance': 2,
+      'Dining out & takeout': 3, 'Entertainment & outings': 3, 'Subscriptions (streaming, apps)': 3,
+      'Health costs (copays, prescriptions)': 4, 'Personal care': 4, 'Shopping & clothing': 4,
+      'Gifts & holidays': 5
+    };
+    var DUE = { 'Car registration & maintenance': 3, 'Gifts & holidays': 12 };
+    var p = example();
+    p.cats = cats;
+    p.scenarios.forEach(function (s) {
+      s.lines.forEach(function (l) {
+        if (l.g !== 'need' && l.g !== 'want') return;
+        l.cat = CAT_OF[l.name] !== undefined ? cats[CAT_OF[l.name]].id : '';
+        l.due = DUE[l.name] || 0;
+        if (l.goal) l.goal.by = '';
+      });
+      s.lines.forEach(function (l) {
+        if (l.goal && /^Move-in fund/.test(l.name)) l.goal.by = monthKey(monthIndex(thisMonth()) + 12);
+      });
+    });
+    return p;
+  }
+
+  function example() {
     return {
-      v: 1,
+      v: 2,
+      cats: [],
+      checkins: [],
+      fund: { acct: 'jsav', saved: 0 },
       touched: false,
       modifiedAt: 0,
       lastSync: null,
@@ -423,9 +543,61 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } }
 
-  function validPlan(p) {
-    return !!(p && p.v === 1 && Array.isArray(p.scenarios) && p.scenarios.length && p.accounts &&
+  function validShape(p) {
+    return !!(p && Array.isArray(p.scenarios) && p.scenarios.length && p.accounts &&
       p.scenarios.every(function (s) { return s && Array.isArray(s.lines) && Array.isArray(s.incomes); }));
+  }
+  // Ids and months end up inside HTML attributes, so a plan (stored or imported) must use only safe ones,
+  // and every structure the app walks must be there; otherwise the plan is refused rather than half-loaded.
+  var ID_RE = /^[A-Za-z0-9_:-]{1,80}$/, MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+  function okId(x) { return typeof x === 'string' && ID_RE.test(x); }
+  function okObj(x) { return !!x && typeof x === 'object'; }
+  function validDeep(p) {
+    return p.scenarios.every(function (s) {
+      return okId(s.id) &&
+        s.incomes.every(function (x) { return okObj(x) && okId(x.id); }) &&
+        s.lines.every(function (l) {
+          return okObj(l) && okId(l.id) && (l.cat === undefined || l.cat === '' || okId(l.cat)) &&
+            (!l.goal || (okObj(l.goal) && (!l.goal.by || MONTH_RE.test(l.goal.by))));
+        });
+    }) &&
+      p.cats.every(function (ct) { return okObj(ct) && okId(ct.id); }) &&
+      p.checkins.every(function (ci) {
+        return okObj(ci) && MONTH_RE.test(ci.month) && Array.isArray(ci.spend) && Array.isArray(ci.goals) &&
+          ci.spend.every(function (r) { return okObj(r) && okId(r.key); }) &&
+          ci.goals.every(function (g) { return okObj(g) && okId(g.line); }) &&
+          (ci.fund === null || ci.fund === undefined || okObj(ci.fund));
+      }) &&
+      (p.fund.acct === '' || SAVE_ACCTS.indexOf(p.fund.acct) >= 0);
+  }
+  function validPlan(p) {
+    return validShape(p) && p.v === DATA_V && Array.isArray(p.cats) && Array.isArray(p.checkins) &&
+      okObj(p.fund) && validDeep(p);
+  }
+
+  // Upgrades a v1 plan to v2 (v2 passes through). Works on a copy, only adds missing fields,
+  // keeps everything else (unknown fields included). Returns null if the result isn't a valid plan.
+  function migrate(p) {
+    if (!p || typeof p !== 'object') return null;
+    var q = JSON.parse(JSON.stringify(p));
+    if (q.v === 1) {
+      if (!validShape(q)) return null;
+      if (!Array.isArray(q.cats)) q.cats = [];
+      if (!Array.isArray(q.checkins)) q.checkins = [];
+      if (!q.fund || typeof q.fund !== 'object') q.fund = { acct: '', saved: 0 };
+      q.scenarios.forEach(function (s) {
+        s.lines.forEach(function (l) {
+          if (!l || typeof l !== 'object') return;
+          if (l.g === 'need' || l.g === 'want') {
+            if (l.cat === undefined) l.cat = '';
+            if (l.due === undefined) l.due = 0;
+          }
+          if (l.goal && typeof l.goal === 'object' && l.goal.by === undefined) l.goal.by = '';
+        });
+      });
+      q.v = 2;
+    }
+    return validPlan(q) ? q : null;
   }
 
   // A plan saved by a newer version of the app must never be overwritten by this one:
@@ -434,20 +606,35 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   var state = null;
   var blocked = false;
+  var migratedOnLoad = false;
   try {
-    var stored = JSON.parse(lsGet(PLAN_KEY) || 'null');
+    var rawStored = lsGet(PLAN_KEY);
+    var stored = JSON.parse(rawStored || 'null');
     if (tooNew(stored)) blocked = true;
-    else if (validPlan(stored)) state = stored;
+    else if (stored && stored.v === 1) {
+      // Keep the pre-upgrade plan on this device in case the upgrade itself ever has a bug.
+      var up = migrate(stored);
+      if (up) { if (!lsGet(BACKUP_KEY)) lsSet(BACKUP_KEY, rawStored); state = up; migratedOnLoad = true; }
+    } else if (validPlan(stored)) state = stored;
   } catch (e) { state = null; }
+  // Something is stored but can't be read: keep a copy before anything can save over it.
+  if (!state && !blocked && rawStored && !lsGet(BACKUP_KEY)) lsSet(BACKUP_KEY, rawStored);
   if (!state) state = defaults();
   var deviceName = lsGet(NAME_KEY) || '';
   var savedAt = state.modifiedAt || 0;
   var storageOk = true;
   function newerBanner() { return { kind: 'error', html: '<b>' + esc(NEWER_MSG) + '</b>' }; }
-  var banner = blocked ? newerBanner() : null;          // {kind:'import'|'error'|'info', ...}
+  var TOUR_KEY = 'household-budget-planner:tour-seen';
+  var banner = blocked ? newerBanner() : (lsGet(TOUR_KEY) ? null : { kind: 'tour' });          // {kind:'import'|'error'|'info', ...}
   var pendingDelete = null;
+  var pendingDeleteCat = null;
+  var pendingCiDel = null;   // month of a check-in armed for deletion
+  var ciView = null;        // month the check-in card shows, or null for the default
+  var ciShown = null;       // month the card is currently showing (set while rendering)
   var pendingReset = false;
   var copyFallback = false;
+
+  if (migratedOnLoad) persist();
 
   if (navigator.storage && navigator.storage.persist) {
     try { navigator.storage.persist().catch(function () {}); } catch (e) { /* ignore */ }
@@ -467,6 +654,14 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   }
   function findLine(s, id) { for (var i = 0; i < s.lines.length; i++) if (s.lines[i].id === id) return s.lines[i]; return null; }
   function findInc(s, id) { for (var i = 0; i < s.incomes.length; i++) if (s.incomes[i].id === id) return s.incomes[i]; return null; }
+  function findCat(id) { for (var i = 0; i < state.cats.length; i++) if (state.cats[i].id === id) return state.cats[i]; return null; }
+  // '' when the line has no category or points at one that no longer exists.
+  function catName(id) { var ct = id ? findCat(id) : null; return ct ? (String(ct.name || '').trim() || 'Untitled category') : ''; }
+  function isSpend(l) { return l.g === 'need' || l.g === 'want'; }
+  function isYearly(l) { return isSpend(l) && l.f === 'yr'; }
+  function fundOn() { return !!(state.fund && state.fund.acct); }
+  function dueOf(l) { var d = parseInt(l.due, 10); return d >= 1 && d <= 12 ? d : 0; }
+  function monthNum(key) { return ((monthIndex(key) % 12) + 12) % 12 + 1; }
 
   /* ---------- math ---------- */
   function n(v) { var x = parseFloat(v); return isFinite(x) && x > 0 ? x : 0; }
@@ -474,9 +669,17 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function calc(s) {
     var I = 0, g = { need: 0, save: 0, want: 0 }, by = {};
     s.incomes.forEach(function (x) { I += n(x.amt); });
-    s.lines.forEach(function (l) { var m = monthly(l); if (g[l.g] === undefined) return; g[l.g] += m; by[l.acct] = (by[l.acct] || 0) + m; });
+    var fund = 0, toFund = fundOn();
+    s.lines.forEach(function (l) {
+      var m = monthly(l); if (g[l.g] === undefined) return;
+      g[l.g] += m;
+      // With the yearly-costs fund on, a yearly line's monthly share is moved to the fund each payday.
+      var a = toFund && isYearly(l) ? state.fund.acct : l.acct;
+      if (toFund && isYearly(l)) fund += m;
+      by[a] = (by[a] || 0) + m;
+    });
     var P = g.need + g.save + g.want;
-    return { I: I, g: g, P: P, left: I - P, by: by, rate: I > 0 ? g.save / I : 0 };
+    return { I: I, g: g, P: P, left: I - P, by: by, fund: fund, rate: I > 0 ? g.save / I : 0 };
   }
   function goalTarget(l, c) {
     if (!l.goal || l.goal.mode === 'none') return 0;
@@ -484,16 +687,285 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     return n(l.goal.amount);
   }
   function goalInfo(l, c) {
-    var G = goalTarget(l, c), B = l.goal ? n(l.goal.saved) : 0, s = monthly(l);
+    var G = goalTarget(l, c), B = l.goal ? goalBalance(l) : 0, s = monthly(l);
     if (!l.goal || l.goal.mode === 'none' || G <= 0) return null;
     var info = { G: G, B: B, s: s, frac: Math.min(B / G, 1) };
     if (B >= G) { info.done = true; return info; }
     if (s <= 0) { info.never = true; return info; }
     info.months = Math.ceil((G - B) / s);
-    var d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + info.months);
-    info.date = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    // Count from the same base month as the goal status: the latest check-in, else the end of last month.
+    var e = latestGoalEntry(l);
+    info.date = monthLabel(monthKey(monthIndex(e ? e.ci.month : prevMonth(new Date())) + info.months));
     return info;
   }
+  var HD_NOTE = 'Enter these as monthly limits on your Honeydue categories. Group lines into categories in the Honeydue categories card. Savings stays out of Honeydue; the transfers above handle it.';
+  var YEARLY_NOTE = 'includes yearly costs at 1/12 a month; expect a spike in the month they’re paid';
+
+  // Honeydue limits: one item per category (sum of its lines) and per line not in a category.
+  function hdItems(s) {
+    var items = [], byCat = {};
+    state.cats.forEach(function (ct) {
+      var it = { kind: 'cat', id: ct.id, name: catName(ct.id), amt: 0, lines: [], note: '' };
+      byCat[ct.id] = it; items.push(it);
+    });
+    s.lines.forEach(function (l) {
+      if (!isSpend(l) || (fundOn() && isYearly(l))) return;
+      var m = monthly(l), it = l.cat ? byCat[l.cat] : null;
+      if (!it) { items.push({ kind: 'line', id: l.id, name: l.name, amt: m, lines: [l], note: l.f === 'yr' ? YEARLY_NOTE : '' }); return; }
+      it.amt += m;
+      if (m >= 0.5) { it.lines.push(l); if (l.f === 'yr') it.note = YEARLY_NOTE; }
+    });
+    return items.filter(function (it) { return it.amt >= 0.5; }).sort(function (a, b) { return b.amt - a.amt; });
+  }
+  function catTotal(s, id) {
+    var t = 0;
+    s.lines.forEach(function (l) { if (isSpend(l) && l.cat === id && !(fundOn() && isYearly(l))) t += monthly(l); });
+    return t;
+  }
+
+  /* ---------- yearly costs fund ---------- */
+  function fundMonthly(s) { var c = 0; s.lines.forEach(function (l) { if (isYearly(l)) c += n(l.amt) / 12; }); return c; }
+  function fundBills(s) {
+    return s.lines.filter(function (l) { return isYearly(l) && dueOf(l); })
+      .map(function (l) { return { name: l.name, amt: n(l.amt), due: dueOf(l), acct: l.acct }; });
+  }
+  // F_k = B + k c − Σ bills due in months m+1..m+k, for k = 1..12; S = max(0, −min F_k).
+  function projectFund(B, base, c, bills) {
+    var F = B, min = 0, minKey = '', months = [], b0 = monthIndex(base);
+    for (var k = 1; k <= 12; k++) {
+      var key = monthKey(b0 + k), mo = monthNum(key), D = 0, due = [];
+      bills.forEach(function (b) { if (b.due === mo) { D += b.amt; due.push({ name: b.name, amt: b.amt, acct: b.acct }); } });
+      F = F + c - D;
+      if (due.length) months.push({ key: key, bills: due, F: F });
+      if (F < min - 1e-9) { min = F; minKey = key; }
+    }
+    return { months: months, S: Math.max(0, -min), minKey: min < 0 ? minKey : '' };
+  }
+  function latestFundEntry(before) {
+    for (var i = state.checkins.length - 1; i >= 0; i--) {
+      var ci = state.checkins[i];
+      if (before && monthIndex(ci.month) >= monthIndex(before)) continue;
+      if (ci.fund) return ci;
+    }
+    return null;
+  }
+  // Same one-number rule as goals: the latest check-in's fund balance, else fund.saved.
+  function fundBalance() { var ci = latestFundEntry(); return ci ? { balance: n(ci.fund.balance), month: ci.month, assumed: !!ci.fund.assumed } : { balance: n(state.fund.saved), month: '', assumed: false }; }
+  function setFundBalance(v) { var ci = latestFundEntry(); if (ci) { ci.fund.balance = v; ci.fund.assumed = false; } else { state.fund.saved = v; } }
+  function fundProjection(s) {
+    var fb = fundBalance();
+    return projectFund(fb.balance, fb.month || prevMonth(new Date()), fundMonthly(s), fundBills(s));
+  }
+  function fundStatus(s) {
+    var p = fundProjection(s), fb = fundBalance(), st;
+    if (p.S <= 0.5) st = { tone: 'ok', text: 'Covered', sub: 'Covered: the fund pays every yearly cost in the next 12 months.' };
+    else st = { tone: 'warn', text: 'Short ' + money(Math.ceil(p.S)) + ' by ' + monthLabel(p.minKey),
+      sub: 'Short ' + money(Math.ceil(p.S)) + ' by ' + monthLabel(p.minKey) + '. Put ' + money(Math.ceil(p.S)) +
+        ' in the fund now to cover every bill, or expect to pay part of them from checking.' + (latestFundEntry() ? '' : ' (A new fund takes a year to build up.)') };
+    if (fb.assumed) st.text += ' (assumed)';
+    return st;
+  }
+  function fundRow(month, s) {
+    var prev = latestFundEntry(month);
+    var start = prev ? n(prev.fund.balance) : n(state.fund.saved);
+    var months = prev ? Math.max(monthIndex(month) - monthIndex(prev.month), 1) : Math.max(0, monthIndex(month) - monthIndex(prevMonth(new Date())));
+    var c = fundMonthly(s), bills = fundBills(s), due = 0;
+    for (var k = 0; k < months; k++) {
+      var mo = monthNum(monthKey(monthIndex(month) - k));
+      bills.forEach(function (b) { if (b.due === mo) due += b.amt; });
+    }
+    return { acct: state.fund.acct, planned: c, due: due, months: months, start: start, balance: Math.round(start + c * months - due), assumed: true };
+  }
+  function fundSentence(s) {
+    if (!fundOn()) return '';
+    var ys = s.lines.filter(isYearly).filter(function (l) { return n(l.amt) >= 0.5; });
+    if (!ys.length) return '';
+    return 'Paid from the yearly-costs fund: ' + ys.map(function (l) {
+      return l.name + ' ' + money(n(l.amt)) + ' (' + (dueOf(l) ? MONTHS[dueOf(l) - 1].slice(0, 3) : 'spread') + ')';
+    }).join(', ') + '. In those months Honeydue will show the category over its limit; that’s expected.';
+  }
+
+  /* ---------- check-ins ---------- */
+  function round2(x) { return Math.round(x * 100) / 100; }
+  function findScn(id) { for (var i = 0; i < state.scenarios.length; i++) if (state.scenarios[i].id === id) return state.scenarios[i]; return null; }
+  function findCheckin(month) { for (var i = 0; i < state.checkins.length; i++) if (state.checkins[i].month === month) return state.checkins[i]; return null; }
+  function latestCheckin() { return state.checkins.length ? state.checkins[state.checkins.length - 1] : null; }
+  function goalLines(s) { return s.lines.filter(function (l) { return l.g === 'save' && l.goal && l.goal.mode !== 'none'; }); }
+
+  // A dated yearly line is planned in full in its due month and not at all in others; spread ones at 1/12.
+  function plannedIn(l, month) {
+    if (!isYearly(l) || !dueOf(l)) return monthly(l);
+    return monthNum(month) === dueOf(l) ? n(l.amt) : 0;
+  }
+  function yearlyNote(l, month) {
+    if (!isYearly(l) || n(l.amt) < 0.5) return '';
+    if (!dueOf(l)) return 'includes irregular yearly costs at 1/12 a month';
+    return monthNum(month) === dueOf(l) ? 'includes ' + l.name + ', ' + money(n(l.amt)) + ', due this month' : '';
+  }
+  // Planned spending for a check-in month: one row per category, per line not in a category, then "Anything else".
+  function spendRows(s, month) {
+    var rows = [], byCat = {};
+    state.cats.forEach(function (ct) { var r = { key: ct.id, name: catName(ct.id), planned: 0, note: '' }; byCat[ct.id] = r; rows.push(r); });
+    s.lines.forEach(function (l) {
+      if (!isSpend(l)) return;
+      var m = plannedIn(l, month), r = l.cat ? byCat[l.cat] : null, note = yearlyNote(l, month);
+      if (r) { r.planned += m; if (note) r.note = r.note ? r.note + '; ' + note : note; }
+      else if (m >= 0.5) rows.push({ key: 'line:' + l.id, name: l.name, planned: m, note: note });
+    });
+    rows.push({ key: 'other', name: 'Anything else', planned: 0, note: '' });
+    return rows;
+  }
+
+  // A goal row in a check-in belongs to a goal line by id, else by exact name (same money across scenarios).
+  function entryFor(ci, line) {
+    var byName = null;
+    for (var i = 0; i < ci.goals.length; i++) {
+      if (ci.goals[i].line === line.id) return ci.goals[i];
+      if (!byName && ci.goals[i].name === line.name) byName = ci.goals[i];
+    }
+    return byName;
+  }
+  // Newest check-in holding this goal; with `before`, only check-ins earlier than that month.
+  function latestGoalEntry(line, before) {
+    for (var i = state.checkins.length - 1; i >= 0; i--) {
+      var ci = state.checkins[i];
+      if (before && monthIndex(ci.month) >= monthIndex(before)) continue;
+      var r = entryFor(ci, line);
+      if (r) return { ci: ci, row: r };
+    }
+    return null;
+  }
+  // One stored number per goal: the latest check-in's balance, else "Saved so far".
+  function goalBalance(line) { var e = latestGoalEntry(line); return e ? n(e.row.balance) : n(line.goal && line.goal.saved); }
+  function setGoalBalance(line, v) {
+    var e = latestGoalEntry(line);
+    if (e) { e.row.balance = v; e.row.assumed = false; } else { line.goal.saved = v; }
+  }
+  function goalRow(l, month, c) {
+    var prev = latestGoalEntry(l, month);
+    var start = prev ? n(prev.row.balance) : n(l.goal.saved);
+    // "Saved so far" is the balance at the end of last month, so a first check-in for last month adds nothing.
+    var months = prev ? Math.max(monthIndex(month) - monthIndex(prev.ci.month), 1) : Math.max(0, monthIndex(month) - monthIndex(prevMonth(new Date())));
+    var planned = monthly(l);
+    return { line: l.id, name: l.name, acct: l.acct, target: goalTarget(l, c), planned: planned, months: months,
+      start: start, balance: Math.round(start + planned * months), assumed: true };
+  }
+
+  /* ---------- goal status ---------- */
+  // With a date: are the planned contributions enough to reach G by the end of `by`?
+  function dateStatus(G, B, s, base, by) {
+    if (B >= G - 0.5) return { tone: 'ok', text: 'Reached', sub: '' };
+    var left = monthIndex(by) - monthIndex(base);
+    if (left <= 0) return { tone: 'bad', text: 'Date passed, ' + money(Math.ceil(G - B)) + ' short', sub: '' };
+    var r = (G - B) / left;
+    if (s >= r - 0.5) return { tone: 'ok', text: 'On track for ' + monthLabel(by), sub: '' };
+    return { tone: 'warn', text: 'Needs ' + money(Math.ceil(r - s)) + '/mo more to make ' + monthLabel(by),
+      sub: s > 0 ? 'At ' + money(s) + ' a month: ' + monthLabel(monthKey(monthIndex(base) + Math.ceil((G - B) / s))) : '' };
+  }
+  // Without a date: is the balance where the planned contributions since the first check-in put it?
+  function paceStatus(B, E) {
+    if (B >= E - 0.5) return { tone: 'ok', text: 'On track', sub: '' };
+    return { tone: 'warn', text: money(Math.ceil(E - B)) + ' behind plan', sub: '' };
+  }
+  function goalStatus(l, s, c) {
+    if (!l.goal || l.goal.mode === 'none') return null;
+    var G = goalTarget(l, c);
+    if (G <= 0) return null;
+    var e = latestGoalEntry(l), B = goalBalance(l), st;
+    if (B >= G - 0.5) st = { tone: 'ok', text: 'Reached', sub: '' };
+    else if (l.goal.by) { st = dateStatus(G, B, monthly(l), e ? e.ci.month : prevMonth(new Date()), l.goal.by); st.pace = st.sub; st.sub = ''; }
+    else if (e) {
+      var E = null;
+      state.checkins.forEach(function (ci) {
+        var r = entryFor(ci, l); if (!r) return;
+        if (E === null) E = n(r.start);
+        E += n(r.planned) * n(r.months);
+      });
+      st = paceStatus(B, E);
+    } else return null;
+    st.assumed = !!(e && e.row.assumed);
+    if (st.assumed) st.text += ' (assumed)';
+    if (e && l.goal.mode === 'months' && Math.abs(n(e.row.target) - G) > 0.5) {
+      st.sub = (st.sub ? st.sub + ' · ' : '') + 'Target changed from ' + money(n(e.row.target)) + ' to ' + money(G);
+    }
+    return st;
+  }
+  function statusChip(st) { return st ? '<span class="chip ' + st.tone + '">' + esc(st.text) + '</span>' : ''; }
+
+  function checkinDue(now) {
+    var pm = prevMonth(now), tm = thisMonth(now), last = latestCheckin();
+    var options = [pm, tm].filter(function (m) { return !last || monthIndex(m) > monthIndex(last.month); });
+    var due = !findCheckin(pm) && !findCheckin(tm) && options.length > 0;
+    return { due: due, month: options[0] || '', options: options };
+  }
+
+  function startCheckin(month, scnId) {
+    var s = findScn(scnId) || scn(), c = calc(s);
+    var ci = { month: month, scn: s.id, scnName: s.name || 'Untitled', startedAt: Date.now(), by: deviceName,
+      spend: spendRows(s, month).map(function (r) { return { key: r.key, name: r.name, planned: r.planned, actual: null, note: r.note }; }),
+      goals: goalLines(s).map(function (l) { return goalRow(l, month, c); }),
+      fund: fundOn() ? fundRow(month, s) : null };
+    state.checkins.push(ci);
+    state.checkins.sort(function (a, b) { return monthIndex(a.month) - monthIndex(b.month); });
+    return ci;
+  }
+
+  // Re-take the plan snapshots for a check-in, keeping what was typed in.
+  function retakeCheckin(ci, scnId) {
+    var s = findScn(scnId) || scn(), c = calc(s), byKey = {}, byName = {}, used = {};
+    ci.spend.forEach(function (r) { byKey[r.key] = r; if (!byName[r.name]) byName[r.name] = r; });
+    ci.scn = s.id; ci.scnName = s.name || 'Untitled';
+    var rows = spendRows(s, ci.month).map(function (r) {
+      // Same key, else same name: lines not in a category have scenario-specific ids but shared names.
+      var o = byKey[r.key] && !used[r.key] ? byKey[r.key] : (byName[r.name] && !used[byName[r.name].key] ? byName[r.name] : null);
+      if (o) used[o.key] = true;
+      return { key: r.key, name: r.name, planned: r.planned, actual: o && o.actual !== undefined ? o.actual : null, note: r.note };
+    });
+    // A typed actual whose row no longer exists still happened: count it under "Anything else".
+    var spare = 0, hasSpare = false;
+    ci.spend.forEach(function (r) { if (!used[r.key] && r.actual !== null && r.actual !== undefined) { spare += n(r.actual); hasSpare = true; } });
+    if (hasSpare) rows.forEach(function (r) { if (r.key === 'other') r.actual = (r.actual === null ? 0 : n(r.actual)) + spare; });
+    ci.spend = rows;
+    var kept = ci.goals, taken = [];
+    var goals = goalLines(s).map(function (l) {
+      var row = null;
+      kept.forEach(function (r) { if (!row && taken.indexOf(r) < 0 && r.line === l.id) row = r; });
+      kept.forEach(function (r) { if (!row && taken.indexOf(r) < 0 && r.name === l.name) row = r; });
+      if (!row) return goalRow(l, ci.month, c);
+      taken.push(row);
+      row.line = l.id; row.name = l.name; row.acct = l.acct; row.target = goalTarget(l, c); row.planned = monthly(l);
+      if (row.assumed) row.balance = Math.round(n(row.start) + row.planned * row.months);
+      return row;
+    });
+    // Balances someone typed for goals this scenario doesn't have are kept, so switching back restores them.
+    kept.forEach(function (r) { if (taken.indexOf(r) < 0 && !r.assumed) goals.push(r); });
+    ci.goals = goals;
+    if (fundOn()) {
+      if (!ci.fund) ci.fund = fundRow(ci.month, s);
+      else {
+        var fr = fundRow(ci.month, s);
+        ci.fund.acct = fr.acct; ci.fund.planned = fr.planned; ci.fund.due = fr.due;
+        if (ci.fund.assumed) ci.fund.balance = Math.round(n(ci.fund.start) + fr.planned * n(ci.fund.months) - fr.due);
+      }
+    }
+  }
+
+  function checkinTotals(ci) {
+    var t = { entered: 0, rows: ci.spend.length, planned: 0, actual: 0 };
+    ci.spend.forEach(function (r) { if (r.actual === null || r.actual === undefined) return; t.entered += 1; t.planned += n(r.planned); t.actual += n(r.actual); });
+    return t;
+  }
+  function diffText(d, suffix) {
+    if (d > 0.5) return '<span class="ci-over">' + money(d) + ' over' + (suffix || '') + '</span>';
+    if (d < -0.5) return '<span class="ci-under">' + money(-d) + ' under' + (suffix || '') + '</span>';
+    return 'on plan';
+  }
+  function checkinSummary(ci) {
+    var t = checkinTotals(ci);
+    if (!t.entered) return 'not started';
+    return diffText(t.actual - t.planned, ' plan') + (t.entered < t.rows ? ' (' + t.entered + ' of ' + t.rows + ')' : '');
+  }
+
   function transfers(s, c) {
     var land = s.depositTo, items = [], moved = 0;
     ACCT_ORDER.forEach(function (a) {
@@ -533,11 +1005,12 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
           '<p class="sub">Sketch where each month’s take-home pay goes, compare now with later, then copy the category limits into Honeydue.</p></div>' +
           '<div class="actions"><span id="save-status"></span>' +
           '<button class="btn" type="button" data-act="import">Import plan file</button>' +
-          '<button class="btn primary" type="button" data-act="export">Export plan file</button></div>' +
+          '<button class="btn primary" type="button" data-act="export">Export plan file</button>' +
+          '<button class="btn ghost" id="tour-btn" type="button" data-act="tour">Tour</button></div>' +
         '</header>' +
         '<div id="banner"></div>' +
-        '<nav class="tabs" id="tabs" role="tablist" aria-label="Scenarios"></nav>' +
-        '<section class="card summary" id="summary" aria-label="Summary"></section>' +
+        '<nav class="tabs" id="tabs" role="tablist" aria-label="Scenarios" data-tour="scenarios"></nav>' +
+        '<section class="card summary" id="summary" aria-label="Summary" data-tour="summary"></section>' +
         '<div class="grid">' +
           '<div class="col" id="editor">' + editorHTML(s) + '</div>' +
           '<div class="col" id="side"></div>' +
@@ -569,6 +1042,12 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function renderBanner() {
     var el = document.getElementById('banner'); if (!el) return;
     if (!banner) { el.innerHTML = ''; return; }
+    if (banner.kind === 'tour') {
+      el.innerHTML = '<div class="banner"><span class="msg"><b>New here? Take a 2-minute tour of what each part shows.</b></span>' +
+        '<span class="actions"><button class="btn primary" type="button" data-act="tour-start">Start tour</button>' +
+        '<button class="btn ghost" type="button" data-act="tour-later">Not now</button></span></div>';
+      return;
+    }
     if (banner.kind === 'import') {
       var p = banner.payload;
       var from = p.exportedBy ? ' from ' + esc(p.exportedBy) : '';
@@ -598,8 +1077,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   }
 
   function editorHTML(s) {
-    var h = '';
-    h += '<section class="card" aria-label="Income">' +
+    var h = checkinHTML();
+    h += '<section class="card" aria-label="Income" data-tour="income">' +
       '<div class="card-head"><h2>Income</h2><span class="meta" data-out="income-total"></span></div>' +
       '<div class="fields">' +
         '<label class="field" for="scn-name">Scenario name<input class="in" id="scn-name" data-scope="scn" data-field="name" value="' + esc(s.name) + '"></label>' +
@@ -618,7 +1097,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
     GROUPS.forEach(function (G) {
       var lines = s.lines.filter(function (l) { return l.g === G.key; });
-      h += '<section class="card group" data-g="' + G.key + '" aria-label="' + G.name + '">' +
+      h += '<section class="card group" data-g="' + G.key + '" data-tour="' + G.key + '" aria-label="' + G.name + '">' +
         '<div class="card-head"><div><h2>' + G.name + '</h2><p class="desc">' + G.desc + '</p></div>' +
         '<div style="text-align:right"><div class="total" data-out="gt-' + G.key + '"></div><div class="meta" data-out="gp-' + G.key + '"></div></div></div>' +
         '<div class="rows">' +
@@ -638,7 +1117,10 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       h += '</div><button class="btn ghost add" type="button" data-act="add-line" data-g="' + G.key + '">+ Add ' + (G.key === 'need' ? 'necessity' : G.key === 'save' ? 'savings item' : 'variable item') + '</button></section>';
     });
 
-    h += '<section class="card" aria-label="Account names"><div class="card-head"><h2>Accounts</h2><span class="meta">Rename to match your banks</span></div><div class="rows">';
+    h += categoriesHTML(s);
+    h += yearlyHTML(s);
+
+    h += '<section class="card" aria-label="Account names" data-tour="accounts"><div class="card-head"><h2>Accounts</h2><span class="meta">Rename to match your banks</span></div><div class="rows">';
     ACCT_ORDER.forEach(function (a) {
       var x = state.accounts[a] || { name: a, note: '' };
       h += '<div class="acct-row"><input class="in" id="an-' + a + '" data-scope="acct" data-id="' + a + '" data-field="name" value="' + esc(x.name) + '" aria-label="Account name">' +
@@ -648,8 +1130,166 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     return h;
   }
 
+  function checkinHTML() {
+    var d = checkinDue(new Date()), last = latestCheckin();
+    var ci = ciView ? findCheckin(ciView) : (d.due ? null : last);
+    ciShown = ci ? ci.month : null;
+    var title = ci ? monthLong(ci.month) + ' check-in' : (d.due ? monthLong(d.month) + ' check-in' : 'Monthly check-in');
+    var h = '<section class="card ci" aria-label="Monthly check-in" data-tour="checkin"><div class="card-head"><div><h2>' + esc(title) + '</h2>' +
+      '<p class="desc">' + (ci
+        ? 'Enter each category’s ' + esc(monthLabel(ci.month)) + ' total from Honeydue.'
+        : 'Once a month, copy each category’s total from Honeydue to see how the month went against the plan and whether your goals are on track.') + '</p></div>' +
+      (ci ? '<span class="meta" data-out="ci-status"></span>' : '') + '</div>';
+    if (d.due && !ci) {
+      h += '<div class="ci-start"><label class="field" for="ci-month">Month<select class="in" id="ci-month">' +
+        d.options.map(function (m) { return '<option value="' + m + '">' + esc(monthLabel(m)) + '</option>'; }).join('') +
+        '</select></label><button class="btn primary" type="button" data-act="ci-start">Start check-in</button></div>';
+    }
+    if (ci) h += ciFormHTML(ci, ci === last);
+    var others = state.checkins.filter(function (x) { return x !== ci; }).reverse();
+    if (others.length || ciView) {
+      h += '<div class="ci-hist"><span>' + (ci ? 'Other months:' : 'Earlier months:') + '</span>' +
+        others.map(function (x) {
+          return '<button class="btn ghost" type="button" data-act="ci-view" data-id="' + x.month + '">' + esc(monthLabel(x.month)) + ' · <span data-out="cih-' + x.month + '"></span></button>';
+        }).join('') +
+        (ciView ? '<button class="btn ghost" type="button" data-act="ci-view" data-id="">Close</button>' : '') + '</div>';
+    }
+    return h + '</section>';
+  }
+
+  function ciFormHTML(ci, isLatest) {
+    var h = '<div class="ci-scn">';
+    if (isLatest) {
+      var opts = state.scenarios.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === ci.scn ? ' selected' : '') + '>' + esc(x.name || 'Untitled') + '</option>'; }).join('');
+      if (!findScn(ci.scn)) opts = '<option value="' + esc(ci.scn) + '" selected>' + esc(ci.scnName) + ' (deleted)</option>' + opts;
+      h += '<label for="ci-scn">Compared with <select class="in" id="ci-scn" data-scope="ci" data-field="scn">' + opts + '</select></label>' +
+        '<button class="btn ghost" type="button" data-act="ci-retake">Use current plan amounts</button>';
+    } else {
+      h += 'Compared with <b>' + esc(ci.scnName) + '</b>';
+    }
+    h += '</div><div class="ci-rows"><div class="ci-head" aria-hidden="true"><span>Category</span><span class="r">Planned</span><span class="r">Actual</span><span class="r">Difference</span></div>';
+    ci.spend.forEach(function (r, i) {
+      h += '<div class="ci-row"><span class="ci-n">' + esc(r.name) + (r.note ? '<small>' + esc(r.note) + '</small>' : '') + '</span>' +
+        '<span class="ci-p r">' + money(r.planned) + '</span>' +
+        '<span class="ci-a amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="cia-' + i + '" data-scope="ci" data-field="actual" data-id="' + esc(r.key) + '" value="' + (r.actual === null || r.actual === undefined ? '' : esc(r.actual)) + '" aria-label="' + esc(monthLong(ci.month)) + ' total for ' + esc(r.name) + '"></span>' +
+        '<span class="ci-d r" data-out="cid-' + esc(r.key) + '"></span></div>';
+    });
+    h += '<div class="ci-row ci-total"><span class="ci-n" data-out="ci-total"></span><span class="ci-p r" data-out="ci-tp"></span><span class="ci-a r" data-out="ci-ta"></span><span class="ci-d r" data-out="ci-td"></span></div></div>';
+    if (ci.goals.length || ci.fund) {
+      h += '<h3 class="ci-sub">Savings balances at the end of ' + esc(monthLong(ci.month)) + '</h3><div class="ci-goals">';
+      ci.goals.forEach(function (g) {
+        h += '<div class="ci-goal"><span class="ci-n">' + esc(g.name) + '<span class="tag">' + esc(acctName(g.acct)) + '</span></span>' +
+          '<span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="cig-' + esc(g.line) + '" data-scope="cig" data-field="balance" data-id="' + esc(g.line) + '" value="' + esc(round2(n(g.balance))) + '" aria-label="' + esc(g.name) + ' balance at the end of ' + esc(monthLong(ci.month)) + '"></span>' +
+          '<span class="ci-meta"><span>planned +' + money(n(g.planned) * n(g.months)) + '</span><span class="ci-assumed" data-out="cias-' + esc(g.line) + '"></span><span data-out="cigs-' + esc(g.line) + '"></span></span></div>';
+      });
+      if (ci.fund) {
+        var f = ci.fund;
+        h += '<div class="ci-goal"><span class="ci-n">Yearly costs fund<span class="tag">' + esc(acctName(f.acct)) + '</span></span>' +
+          '<span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="cif" data-scope="cif" data-field="balance" value="' + esc(round2(n(f.balance))) + '" aria-label="Yearly costs fund balance at the end of ' + esc(monthLong(ci.month)) + '"></span>' +
+          '<span class="ci-meta"><span>planned +' + money(n(f.planned) * n(f.months)) + ' − ' + money(n(f.due)) + ' due</span><span class="ci-assumed" data-out="cias-fund"></span><span data-out="cigs-fund"></span></span></div>';
+      }
+      h += '</div><p class="note" data-out="ci-recon"></p>';
+    }
+    h += '<div class="ci-foot"><span></span><button class="btn ghost danger" type="button" data-act="ci-del" data-id="' + ci.month + '">' +
+      (pendingCiDel === ci.month ? 'Click again to delete this check-in' : 'Delete this check-in') + '</button></div>';
+    return h;
+  }
+
+  function yearlyHTML(s) {
+    var ys = s.lines.filter(isYearly);
+    var h = '<section class="card" aria-label="Yearly costs" data-tour="yearly"><div class="card-head"><div><h2>Yearly costs</h2>' +
+      '<p class="desc">Bills that come once a year. Setting aside a twelfth each month means the money is there when they’re due.</p></div>' +
+      '<div style="text-align:right"><div class="total" data-out="fund-c"></div><div class="meta">set aside a month</div></div></div>' +
+      '<div class="fields"><label class="field" for="fund-acct">Set aside each month in<select class="in" id="fund-acct" data-scope="fund" data-field="acct">' +
+      '<option value=""' + (fundOn() ? '' : ' selected') + '>Don’t set money aside</option>' + optionList(SAVE_ACCTS, state.fund.acct) + '</select></label>' +
+      (fundOn() ? '<label class="field" for="fund-bal">' + (fundBalance().month ? 'Balance at end of ' + esc(monthLabel(fundBalance().month)) : 'In the fund now') + '<span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="fund-bal" data-scope="fund" data-field="balance" value="' + esc(round2(fundBalance().balance)) + '"></span></label>' : '') +
+      '</div>';
+    if (ys.length) {
+      h += '<div class="rows yr-rows"><div class="yr-row yr-head" aria-hidden="true"><span>Item</span><span class="r">Per year</span><span>Paid in</span></div>';
+      ys.forEach(function (l) {
+        h += '<div class="yr-row"><label for="yd-' + l.id + '" data-out="yn-' + l.id + '">' + esc(l.name) + '</label><span class="r" data-out="ya-' + l.id + '"></span>' +
+          '<select class="in" id="yd-' + l.id + '" data-scope="line" data-id="' + l.id + '" data-field="due">' +
+          '<option value="0"' + (dueOf(l) ? '' : ' selected') + '>Spread through the year</option>' +
+          MONTHS.map(function (mn, i) { return '<option value="' + (i + 1) + '"' + (dueOf(l) === i + 1 ? ' selected' : '') + '>' + mn + '</option>'; }).join('') +
+          '</select></div>';
+      });
+      h += '</div>';
+    }
+    h += '<p class="note">' + (ys.length ? '' : 'No yearly items yet. ') + 'To add one, add a line in Necessities or Variable and set How often to yearly.</p>';
+    return h + '<div data-out="fund-cal"></div></section>';
+  }
+  function fundCalHTML(s) {
+    var ys = s.lines.filter(isYearly), bills = fundBills(s);
+    if (!ys.length) return '';
+    var p = fundOn() ? fundProjection(s) : projectFund(0, prevMonth(new Date()), 0, bills), h = '';
+    if (p.months.length) {
+      h += '<table class="hd fund-tbl"><tr class="gh"><td>Next 12 months</td><td class="r">' + (fundOn() ? 'Fund after' : '') + '</td></tr>';
+      p.months.forEach(function (m) {
+        h += '<tr><td><b>' + esc(monthLabel(m.key)) + '</b> ' + m.bills.map(function (b) {
+          return esc(b.name) + ' ' + money(b.amt) + (fundOn() ? ' · move it to ' + esc(acctName(b.acct)) : '');
+        }).join('; ') + '</td><td class="r' + (fundOn() && m.F < -0.5 ? ' neg' : '') + '">' + (fundOn() ? money(m.F) : '') + '</td></tr>';
+      });
+      h += '</table>';
+    }
+    if (fundOn()) {
+      var st = fundStatus(s);
+      h += '<p class="fund-st ' + st.tone + '">' + esc(st.sub) + '</p>';
+    } else {
+      h += '<p class="note">These are paid from checking when due. Choose an account above to set money aside each month.</p>';
+    }
+    if (ys.some(function (l) { return !dueOf(l); })) h += '<p class="note">Items spread through the year have no set month; their share builds a buffer for irregular costs.</p>';
+    return h;
+  }
+
+  function catOptions(sel) {
+    var found = !!(sel && findCat(sel));
+    return '<option value=""' + (found ? '' : ' selected') + '>Not in a category</option>' +
+      state.cats.map(function (ct) {
+        return '<option value="' + esc(ct.id) + '"' + (ct.id === sel ? ' selected' : '') + '>' + esc(catName(ct.id)) + '</option>';
+      }).join('');
+  }
+  function lineLabel(l) { return esc(l.name) + (l.f === 'yr' ? ' <span class="faint">yearly</span>' : ''); }
+
+  function categoriesHTML(s) {
+    var n = state.cats.length;
+    var h = '<section class="card" aria-label="Honeydue categories" data-tour="categories">' +
+      '<div class="card-head"><div><h2>Honeydue categories</h2>' +
+      '<p class="desc">Group your lines into the categories you use in Honeydue. Change them any time; the Honeydue limits update as you go.</p></div>' +
+      '<span class="meta">' + n + ' categor' + (n === 1 ? 'y' : 'ies') + '</span></div><div class="rows">';
+    state.cats.forEach(function (ct) {
+      var armed = pendingDeleteCat === ct.id;
+      h += '<div class="cat-row"><input class="in" id="cn-' + ct.id + '" data-scope="cat" data-id="' + ct.id + '" data-field="name" value="' + esc(ct.name) + '" aria-label="Category name">' +
+        '<span class="mo" data-out="ct-' + ct.id + '"></span>' +
+        (armed
+          ? '<button class="btn ghost danger" id="dc-' + ct.id + '" type="button" data-act="del-cat" data-id="' + ct.id + '">Click again to delete</button>'
+          : '<button class="icon" id="dc-' + ct.id + '" type="button" data-act="del-cat" data-id="' + ct.id + '" aria-label="Delete category ' + esc(catName(ct.id)) + '" title="Delete">×</button>') +
+        '</div>';
+    });
+    if (!n) h += '<p class="note">No categories yet. Add the ones you use in Honeydue.</p>';
+    h += '</div><button class="btn ghost add" type="button" data-act="add-cat">+ Add category</button>';
+    var lines = s.lines.filter(isSpend);
+    h += '<div class="cat-lines"><div class="rows-head" aria-hidden="true" style="display:grid;grid-template-columns:minmax(0,1fr) auto"><span>Line</span><span>Category</span></div>';
+    lines.forEach(function (l) {
+      h += '<div class="cat-line"><label for="lc-' + l.id + '" data-out="ln-' + l.id + '">' + lineLabel(l) + '</label>' +
+        '<select class="in" id="lc-' + l.id + '" data-scope="line" data-id="' + l.id + '" data-field="cat">' + catOptions(l.cat) + '</select></div>';
+    });
+    if (!lines.length) h += '<p class="note">Add necessities or variable lines to group them.</p>';
+    return h + '</div></section>';
+  }
+
+  function byHTML(l, g) {
+    var by = g.by || '', bm = by ? by.slice(5, 7) : '', byr = by ? by.slice(0, 4) : '', y0 = new Date().getFullYear(), years = [];
+    for (var y = y0; y <= y0 + 10; y++) years.push(String(y));
+    if (byr && years.indexOf(byr) < 0) years.unshift(byr);
+    return '<span class="goal-by">By <select class="in" id="gbm-' + l.id + '" data-scope="goal" data-id="' + l.id + '" data-field="by" aria-label="Month to reach ' + esc(l.name) + ' (optional)">' +
+      '<option value="">—</option>' + MONTHS.map(function (mn, i) { var v = pad2(i + 1); return '<option value="' + v + '"' + (v === bm ? ' selected' : '') + '>' + mn.slice(0, 3) + '</option>'; }).join('') +
+      '</select><select class="in" id="gby-' + l.id + '" data-scope="goal" data-id="' + l.id + '" data-field="by" aria-label="Year to reach ' + esc(l.name) + ' (optional)">' +
+      '<option value="">—</option>' + years.map(function (v) { return '<option value="' + v + '"' + (v === byr ? ' selected' : '') + '>' + v + '</option>'; }).join('') +
+      '</select></span>';
+  }
+
   function goalHTML(l) {
-    var g = l.goal || { mode: 'none', months: 6, amount: 0, saved: 0 };
+    var g = l.goal || newGoal();
     var h = '<div class="goal" data-goalrow="' + l.id + '">' +
       '<label for="gm-' + l.id + '">Goal <select class="in" id="gm-' + l.id + '" data-scope="goal" data-id="' + l.id + '" data-field="mode">' +
         '<option value="none"' + (g.mode === 'none' ? ' selected' : '') + '>None</option>' +
@@ -662,7 +1302,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       h += '<label for="gn-' + l.id + '"><input class="in months" type="number" inputmode="numeric" min="1" max="24" step="1" id="gn-' + l.id + '" data-scope="goal" data-id="' + l.id + '" data-field="months" value="' + esc(g.months) + '"> months</label>';
     }
     if (g.mode !== 'none') {
-      h += '<label for="gs-' + l.id + '">Saved so far <span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="50" id="gs-' + l.id + '" data-scope="goal" data-id="' + l.id + '" data-field="saved" value="' + esc(g.saved) + '"></span></label>' +
+      var ge = latestGoalEntry(l);
+      h += '<label for="gs-' + l.id + '">' + (ge ? 'Balance at end of ' + esc(monthLabel(ge.ci.month)) : 'Saved so far') + ' <span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="50" id="gs-' + l.id + '" data-scope="goal" data-id="' + l.id + '" data-field="saved" value="' + esc(round2(goalBalance(l))) + '"></span></label>' +
+        byHTML(l, g) +
         '<span class="goal-out" data-out="g-' + l.id + '"></span>';
     }
     return h + '</div>';
@@ -683,8 +1325,16 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       setOut('gt-' + G.key, money(c.g[G.key]));
       setOut('gp-' + G.key, c.I > 0 ? pct(c.g[G.key] / c.I) + ' of income' : '');
     });
+    state.cats.forEach(function (ct) { setOut('ct-' + ct.id, money(catTotal(s, ct.id)) + ' / mo'); });
+    refreshCheckin();
+    setOut('fund-c', money(fundMonthly(s)));
+    s.lines.forEach(function (l) { if (isYearly(l)) { setOut('yn-' + l.id, esc(l.name)); setOut('ya-' + l.id, money(n(l.amt))); } });
+    setOut('fund-cal', fundCalHTML(s));
+    var fbi = document.getElementById('fund-bal');
+    if (fbi && document.activeElement !== fbi && n(fbi.value) !== round2(fundBalance().balance)) fbi.value = round2(fundBalance().balance);
     s.lines.forEach(function (l) {
       var m = monthly(l);
+      if (isSpend(l)) setOut('ln-' + l.id, lineLabel(l));
       setOut('m-' + l.id, money(m) + (l.f !== 'mo' ? '<small>a month</small>' : ''));
       var b = root.querySelector('[data-out="b-' + l.id + '"]');
       if (b) b.style.width = (c.I > 0 ? Math.min(m / c.I * 100, 100) : 0) + '%';
@@ -696,13 +1346,52 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
           else t = money(gi.G) + ' by ' + gi.date + ' (' + gi.months + ' mo)';
         }
         setOut('g-' + l.id, t);
+        var gs = document.getElementById('gs-' + l.id);
+        if (gs && l.goal && document.activeElement !== gs && n(gs.value) !== round2(goalBalance(l))) gs.value = round2(goalBalance(l));
       }
     });
     renderSaveStatus();
   }
 
+  function refreshCheckin() {
+    state.checkins.forEach(function (x) { setOut('cih-' + x.month, checkinSummary(x)); });
+    var ci = ciShown ? findCheckin(ciShown) : null;
+    if (!ci) return;
+    ci.spend.forEach(function (r) {
+      setOut('cid-' + r.key, r.actual === null || r.actual === undefined ? '<span class="faint">—</span>' : diffText(n(r.actual) - n(r.planned)));
+    });
+    var t = checkinTotals(ci);
+    setOut('ci-total', 'Total <span class="faint">(' + t.entered + ' of ' + t.rows + ' entered)</span>');
+    setOut('ci-tp', money(t.planned));
+    setOut('ci-ta', t.entered ? money(t.actual) : '—');
+    setOut('ci-td', t.entered ? diffText(t.actual - t.planned, ' plan') : '');
+    setOut('ci-status', t.entered === t.rows ? '<span class="chip ok">Done</span>' : '<span class="chip warn">' + t.entered + ' of ' + t.rows + ' entered</span>');
+    var byAcct = {};
+    ci.goals.forEach(function (g) {
+      setOut('cias-' + g.line, g.assumed ? 'assumed from plan' : '');
+      var gl = null, cs = findScn(ci.scn) || scn();
+      if (ci === latestCheckin()) cs.lines.forEach(function (l) { if (l.id === g.line) gl = l; });
+      setOut('cigs-' + g.line, gl ? statusChip(goalStatus(gl, cs, calc(cs))) : '');
+      var el = document.getElementById('cig-' + g.line);
+      if (el && document.activeElement !== el && n(el.value) !== round2(n(g.balance))) el.value = round2(n(g.balance));
+      byAcct[g.acct] = byAcct[g.acct] || { sum: 0, k: 0 };
+      byAcct[g.acct].sum += n(g.balance); byAcct[g.acct].k += 1;
+    });
+    if (ci.fund) {
+      setOut('cias-fund', ci.fund.assumed ? 'assumed from plan' : '');
+      var fe = document.getElementById('cif');
+      if (fe && document.activeElement !== fe && n(fe.value) !== round2(n(ci.fund.balance))) fe.value = round2(n(ci.fund.balance));
+      setOut('cigs-fund', ci === latestCheckin() && fundOn() ? statusChip(fundStatus(findScn(ci.scn) || scn())) : '');
+      byAcct[ci.fund.acct] = byAcct[ci.fund.acct] || { sum: 0, k: 0 };
+      byAcct[ci.fund.acct].sum += n(ci.fund.balance); byAcct[ci.fund.acct].k += 1;
+    }
+    setOut('ci-recon', Object.keys(byAcct).filter(function (a) { return byAcct[a].k > 1; }).map(function (a) {
+      return esc(acctName(a)) + ' holds ' + money(byAcct[a].sum) + ' across these. Check that this matches the account’s balance.';
+    }).join(' '));
+  }
+
   function renderSummary(s, c) {
-    var st = status(c);
+    var st = status(c), due = checkinDue(new Date());
     var scale = Math.max(c.I, c.P, 1);
     var leftPos = Math.max(c.left, 0);
     function w(v) { return (v / scale * 100).toFixed(2) + '%'; }
@@ -711,7 +1400,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
         '<div class="stat"><span>Take-home</span><b>' + money(c.I) + '</b></div>' +
         '<div class="stat"><span>Planned</span><b>' + money(c.P) + '</b></div>' +
         '<div class="stat"><span>Savings rate</span><b>' + pct(c.rate) + '</b></div>' +
-        '<div class="stat"><span>Status</span><span class="chip ' + st.tone + '">' + esc(st.text) + '</span></div>' +
+        '<div class="stat"><span>Status</span><span class="chip ' + st.tone + '">' + esc(st.text) + '</span>' +
+          (due.due ? '<span class="chip warn">' + esc(monthLong(due.month)) + ' check-in not done</span>' : '') + '</div>' +
       '</div>' +
       '<div class="stack-wrap"><div class="stack" role="img" aria-label="Necessities ' + money(c.g.need) + ', savings ' + money(c.g.save) + ', variable ' + money(c.g.want) + ', unassigned ' + money(leftPos) + '">' +
         '<div class="seg-need" style="width:' + w(c.g.need) + '"></div>' +
@@ -748,7 +1438,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function syncCardHTML() {
     var ls = state.lastSync;
     var last = ls ? (ls.kind === 'export' ? 'Last exported ' : 'Last imported ') + esc(when(ls.at)) + (ls.by ? ' (' + esc(ls.by) + ')' : '') : 'Not exported or imported yet';
-    return '<section class="card" aria-label="Sharing between devices"><div class="card-head"><h2>Sharing between devices</h2></div>' +
+    return '<section class="card" aria-label="Sharing between devices" data-tour="sharing"><div class="card-head"><h2>Sharing between devices</h2></div>' +
       '<div class="sync-meta"><span><b>' + (storageOk ? 'Saved on this device automatically' : 'Can’t save on this device') + '</b></span>' +
       '<span>' + last + '</span>' +
       (unsyncedEdits() ? '<span class="chip warn" style="align-self:flex-start">Edits not exported yet</span>' : '') + '</div>' +
@@ -762,11 +1452,17 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   function renderSide(s, c) {
     var t = transfers(s, c);
-    var h = '<section class="card flow" aria-label="Payday transfer plan"><div class="card-head"><h2>Payday transfer plan</h2><span class="meta">Set these up as recurring transfers</span></div>' +
+    var h = '<section class="card flow" aria-label="Payday transfer plan" data-tour="transfers"><div class="card-head"><h2>Payday transfer plan</h2><span class="meta">Set these up as recurring transfers</span></div>' +
       flowSVG(t, c) + stepsHTML(s, c, t) + '</section>';
 
     var goals = s.lines.filter(function (l) { return l.g === 'save' && goalInfo(l, c); });
-    h += '<section class="card" aria-label="Savings goals"><div class="card-head"><h2>Savings goals</h2></div>';
+    h += '<section class="card" aria-label="Savings goals" data-tour="goals"><div class="card-head"><h2>Savings goals</h2></div>';
+    if (fundOn()) {
+      var fst = fundStatus(s), nY = s.lines.filter(isYearly).length;
+      h += '<div class="goals" style="margin-bottom:14px"><div class="gl" data-goal="fund"><div class="gl-top"><span>Yearly costs fund<span class="tag">' + esc(acctName(state.fund.acct)) + '</span></span>' +
+        '<span><b>' + money(fundBalance().balance) + '</b></span></div><div class="gl-st">' + statusChip(fst) + '</div>' +
+        '<div class="gl-sub">' + money(c.fund) + ' a month for ' + nY + ' yearly item' + (nY === 1 ? '' : 's') + '.</div></div></div>';
+    }
     if (!goals.length) {
       h += '<p class="note">Add a goal to any savings item to see when you’ll reach it.</p>';
     } else {
@@ -777,31 +1473,37 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
           gi.never ? 'No monthly amount set yet.' :
           money(gi.s) + ' a month → about ' + gi.months + ' month' + (gi.months === 1 ? '' : 's') + ', around ' + gi.date + '.';
         if (l.goal.mode === 'months') sub += ' Target is ' + n(l.goal.months) + ' × ' + money(c.g.need) + ' of monthly necessities in this scenario.';
-        h += '<div class="gl"><div class="gl-top"><span>' + esc(l.name) + '<span class="tag">' + esc(acctName(l.acct)) + '</span></span><span><b>' + money(gi.B) + '</b> <span class="faint">of ' + money(gi.G) + '</span></span></div>' +
-          '<div class="pbar"><i style="width:' + (gi.frac * 100).toFixed(1) + '%"></i></div><div class="gl-sub">' + sub + '</div></div>';
+        var gst = goalStatus(l, s, c);
+        h += '<div class="gl" data-goal="' + esc(l.id) + '"><div class="gl-top"><span>' + esc(l.name) + '<span class="tag">' + esc(acctName(l.acct)) + '</span></span><span><b>' + money(gi.B) + '</b> <span class="faint">of ' + money(gi.G) + '</span></span></div>' +
+          '<div class="pbar"><i style="width:' + (gi.frac * 100).toFixed(1) + '%"></i></div>' +
+          (gst ? '<div class="gl-st">' + statusChip(gst) + (gst.sub ? '<span class="gl-sub">' + esc(gst.sub) + '</span>' : '') + '</div>' : '') +
+          '<div class="gl-sub">' + sub + '</div></div>';
       });
       h += '</div>';
     }
     h += '</section>';
 
-    var hd = s.lines.filter(function (l) { return l.g !== 'save' && monthly(l) >= 0.5; });
-    h += '<section class="card" aria-label="Honeydue category limits"><div class="card-head"><h2>Honeydue limits</h2>' +
+    var items = hdItems(s);
+    h += '<section class="card" aria-label="Honeydue category limits" data-tour="honeydue"><div class="card-head"><h2>Honeydue limits</h2>' +
       '<button class="btn" type="button" data-act="copy-hd">Copy list</button></div>' +
-      '<p class="note">Enter these as monthly spending limits on your Honeydue categories. Honeydue starts with 17 categories, so rename or combine lines to fit. Savings stays out of Honeydue; that’s handled by the transfers above.</p>' +
+      '<p class="note">' + esc(HD_NOTE) + '</p>' +
       '<table class="hd">';
-    ['need', 'want'].forEach(function (gk) {
-      var rows = hd.filter(function (l) { return l.g === gk; }).sort(function (a, b) { return monthly(b) - monthly(a); });
-      if (!rows.length) return;
-      h += '<tr class="gh"><td colspan="2">' + (gk === 'need' ? 'Necessities' : 'Variable') + '</td></tr>';
-      rows.forEach(function (l) {
-        h += '<tr><td>' + esc(l.name) + '<span class="tag">' + esc(acctName(l.acct)) + '</span></td><td class="r">' + money(monthly(l)) + ' / mo</td></tr>';
-      });
+    items.forEach(function (it) {
+      h += '<tr><td><span class="hd-n">' + esc(it.name) + '</span>' +
+        (it.kind === 'cat'
+          ? '<span class="hd-lines">' + esc(it.lines.map(function (l) { return l.name; }).join(', ')) + '</span>'
+          : '<span class="tag">' + esc(acctName(it.lines[0].acct)) + '</span>') +
+        (it.note ? '<span class="hd-note">' + esc(it.note) + '</span>' : '') +
+        '</td><td class="r">' + money(it.amt) + ' / mo</td></tr>';
     });
+    if (!items.length) h += '<tr><td colspan="2" class="note">No spending lines yet.</td></tr>';
+    var fs = fundSentence(s);
     h += '</table>';
+    if (fs) h += '<p class="note hd-after">' + esc(fs) + '</p>';
     if (copyFallback) h += '<label class="field" for="hd-copy">Select all and copy:<textarea class="copybox" id="hd-copy" readonly>' + esc(honeydueText(s)) + '</textarea></label>';
     h += '</section>';
 
-    h += '<section class="card" aria-label="Compare scenarios"><div class="card-head"><h2>Compare scenarios</h2></div><div class="cmp-wrap"><table class="cmp"><thead><tr><th></th>';
+    h += '<section class="card" aria-label="Compare scenarios" data-tour="compare"><div class="card-head"><h2>Compare scenarios</h2></div><div class="cmp-wrap"><table class="cmp"><thead><tr><th></th>';
     var cs = state.scenarios.map(function (x) { return { s: x, c: calc(x) }; });
     cs.forEach(function (o) { h += '<th><button type="button" data-act="tab" data-id="' + esc(o.s.id) + '">' + esc(o.s.name || 'Untitled') + '</button></th>'; });
     h += '</tr></thead><tbody>';
@@ -867,9 +1569,10 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     t.items.forEach(function (x) {
       var parts = [];
       GROUPS.forEach(function (G) {
-        var v = 0; s.lines.forEach(function (l) { if (l.acct === x.a && l.g === G.key) v += monthly(l); });
+        var v = 0; s.lines.forEach(function (l) { if (l.acct === x.a && l.g === G.key && !(fundOn() && isYearly(l))) v += monthly(l); });
         if (v > 0.5) parts.push(G.name.toLowerCase() + ' ' + money(v));
       });
+      if (fundOn() && x.a === state.fund.acct && c.fund > 0.5) parts.push('yearly costs fund ' + money(c.fund));
       h += '<li><span>Move to <b>' + esc(acctName(x.a)) + '</b></span><b>' + money(x.amt) + '</b><span class="why">' + esc(parts.join(' + ')) + '</span></li>';
     });
     var unassigned = Math.max(t.keep - t.keepPlanned, 0);
@@ -883,16 +1586,14 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   }
 
   function honeydueText(s) {
-    var out = [];
-    ['need', 'want'].forEach(function (gk) {
-      var rows = s.lines.filter(function (l) { return l.g === gk && monthly(l) >= 0.5; }).sort(function (a, b) { return monthly(b) - monthly(a); });
-      if (!rows.length) return;
-      out.push(gk === 'need' ? 'NECESSITIES' : 'VARIABLE');
-      rows.forEach(function (l) { out.push(l.name + ': ' + money(monthly(l)) + ' per month'); });
-      out.push('');
+    var out = hdItems(s).map(function (it) {
+      return it.name + ': ' + money(it.amt) + ' per month' +
+        (it.kind === 'cat' && it.lines.length ? ' (' + it.lines.map(function (l) { return l.name; }).join(', ') + ')' : '');
     });
-    return (s.name ? 'Honeydue limits – ' + s.name + '\n\n' : '') + out.join('\n').trim();
+    var fs = fundSentence(s);
+    return (s.name ? 'Honeydue limits – ' + s.name + '\n\n' : '') + out.join('\n') + (fs ? '\n\n' + fs : '');
   }
+
 
   function renderSaveStatus() {
     var el = document.getElementById('save-status'); if (!el) return;
@@ -913,7 +1614,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     var now = new Date();
     state.lastSync = { at: now.getTime(), kind: 'export', by: deviceName };
     persist();
-    var payload = { app: APP_ID, v: 1, exportedAt: now.toISOString(), exportedBy: deviceName, state: state };
+    var payload = { app: APP_ID, v: DATA_V, exportedAt: now.toISOString(), exportedBy: deviceName, state: state };
     var json = JSON.stringify(payload, null, 2);
     var name = 'budget-plan-' + ymd(now) + '.json';
     var blob = new Blob([json], { type: 'application/json' });
@@ -959,8 +1660,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       try { p = JSON.parse(String(reader.result)); } catch (err) { p = null; }
       if (p && p.app === APP_ID && (tooNew(p) || tooNew(p.state))) {
         banner = newerBanner();
-      } else if (p && p.app === APP_ID && validPlan(p.state)) {
-        banner = { kind: 'import', payload: p };
+      } else if (p && p.app === APP_ID && migrate(p.state)) {
+        banner = { kind: 'import', payload: p, plan: migrate(p.state) };
       } else {
         banner = { kind: 'error', html: '<b>That file isn’t a budget plan file.</b><small>Choose a file this app exported; its name starts with “budget-plan-”.</small>' };
       }
@@ -973,7 +1674,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   function confirmImport() {
     var p = banner.payload;
-    state = p.state;
+    state = banner.plan;
     var now = Date.now();
     state.touched = true;
     state.modifiedAt = now;
@@ -997,10 +1698,32 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     var s = scn(), id = t.getAttribute('data-id'), f = t.getAttribute('data-field'), v = t.value;
     var isNum = t.type === 'number';
     if (sc === 'device') { deviceName = v; lsSet(NAME_KEY, v); return; }
+    if (sc === 'fund') {
+      if (t.tagName === 'SELECT' || f !== 'balance') return;
+      setFundBalance(n(v)); changed(); refresh();
+      return;
+    }
+    if (sc === 'ci' || sc === 'cig' || sc === 'cif') {
+      var shown = ciShown ? findCheckin(ciShown) : null; if (!shown || t.tagName === 'SELECT') return;
+      if (sc === 'cif') {
+        if (shown.fund) { shown.fund.balance = n(v); shown.fund.assumed = false; }
+      } else if (sc === 'ci') {
+        shown.spend.forEach(function (r) { if (r.key === id) r.actual = String(v).trim() === '' ? null : n(v); });
+      } else {
+        shown.goals.forEach(function (g) { if (g.line === id) { g.balance = n(v); g.assumed = false; } });
+      }
+      changed(); refresh();
+      return;
+    }
     if (sc === 'line') { var l = findLine(s, id); if (!l) return; if (t.tagName === 'SELECT') return; l[f] = isNum ? n(v) : v; }
     else if (sc === 'inc') { var x = findInc(s, id); if (!x) return; x[f] = isNum ? n(v) : v; }
-    else if (sc === 'goal') { var lg = findLine(s, id); if (!lg) return; if (f === 'mode') return; lg.goal = lg.goal || { mode: 'none', months: 6, amount: 0, saved: 0 }; lg.goal[f] = n(v); }
+    else if (sc === 'goal') { var lg = findLine(s, id); if (!lg) return; if (t.tagName === 'SELECT') return; lg.goal = lg.goal || newGoal(); if (f === 'saved') setGoalBalance(lg, n(v)); else lg.goal[f] = n(v); }
     else if (sc === 'scn') { if (f === 'depositTo') return; s[f] = v; }
+    else if (sc === 'cat') {
+      var ct = findCat(id); if (!ct) return;
+      ct.name = v;
+      root.querySelectorAll('select[data-field="cat"] option[value="' + id + '"]').forEach(function (o) { o.textContent = catName(id); });
+    }
     else if (sc === 'acct') {
       state.accounts[id] = state.accounts[id] || { name: id, note: '' };
       state.accounts[id][f] = v;
@@ -1013,11 +1736,27 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   root.addEventListener('change', function (e) {
     var t = e.target, sc = t.getAttribute('data-scope'); if (!sc || t.tagName !== 'SELECT') return;
     var s = scn(), id = t.getAttribute('data-id'), f = t.getAttribute('data-field'), v = t.value;
-    if (sc === 'line') { var l = findLine(s, id); if (l) l[f] = v; changed(); refresh(); }
+    if (sc === 'ci' && f === 'scn') {
+      var cs = ciShown ? findCheckin(ciShown) : null;
+      if (cs) { retakeCheckin(cs, v); changed(); rerenderEditor('ci-scn'); }
+      return;
+    }
+    if (sc === 'fund' && f === 'acct') { state.fund.acct = v; changed(); rerenderEditor('fund-acct'); return; }
+    if (sc === 'line') {
+      var l = findLine(s, id); if (!l) return;
+      if (f === 'due') l.due = parseInt(v, 10) || 0; else l[f] = v;
+      changed();
+      if (f === 'f') rerenderEditor('f-' + id); else refresh();
+    }
     else if (sc === 'scn') { s[f] = v; changed(); refresh(); }
     else if (sc === 'goal') {
       var lg = findLine(s, id); if (!lg) return;
-      lg.goal = lg.goal || { mode: 'none', months: 6, amount: 0, saved: 0 };
+      lg.goal = lg.goal || newGoal();
+      if (f === 'by') {
+        var bmS = document.getElementById('gbm-' + id), byS = document.getElementById('gby-' + id);
+        lg.goal.by = bmS && byS && bmS.value && byS.value ? byS.value + '-' + bmS.value : '';
+        changed(); refresh(); return;
+      }
       lg.goal.mode = v; changed(); rerenderEditor('gm-' + id);
     }
   });
@@ -1035,6 +1774,30 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     var act = b.getAttribute('data-act'), s = scn();
     if (act !== 'del-scn') pendingDelete = null;
     if (act !== 'reset') pendingReset = false;
+    if (act !== 'del-cat') pendingDeleteCat = null;
+    if (act !== 'ci-del') pendingCiDel = null;
+    if (act === 'tour' || act === 'tour-start') { startTour(); return; }
+    if (act === 'tour-later') { lsSet(TOUR_KEY, '1'); banner = null; renderBanner(); return; }
+    if (act === 'ci-start') {
+      var mSel = document.getElementById('ci-month');
+      if (!mSel || !mSel.value) return;
+      startCheckin(mSel.value, state.active); ciView = null; changed(); rerenderEditor('cia-0');
+      return;
+    }
+    if (act === 'ci-view') { ciView = b.getAttribute('data-id') || null; rerenderEditor(null); return; }
+    if (act === 'ci-retake') {
+      var cr = ciShown ? findCheckin(ciShown) : null;
+      if (cr) { retakeCheckin(cr, cr.scn); changed(); rerenderEditor(null); }
+      return;
+    }
+    if (act === 'ci-del') {
+      var dm = b.getAttribute('data-id');
+      if (pendingCiDel === dm) {
+        state.checkins = state.checkins.filter(function (x) { return x.month !== dm; });
+        pendingCiDel = null; ciView = null; changed(); rerenderEditor(null);
+      } else { pendingCiDel = dm; rerenderEditor(null); }
+      return;
+    }
     if (act === 'tab') { state.active = b.getAttribute('data-id'); copyFallback = false; persist(); renderAll(); return; }
     if (act === 'export') { exportPlan(); return; }
     if (act === 'import') { startImport(); return; }
@@ -1043,11 +1806,26 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (act === 'add-line') {
       var g = b.getAttribute('data-g');
       var nl = L(g, g === 'save' ? 'New savings item' : 'New item', 0, 'mo', g === 'save' ? 'jsav' : 'jchk');
-      if (g === 'save') nl.goal = { mode: 'none', months: 6, amount: 0, saved: 0 };
+      if (g === 'save') nl.goal = newGoal();
       var lastIdx = -1; s.lines.forEach(function (l, i) { if (l.g === g) lastIdx = i; });
       s.lines.splice(lastIdx + 1, 0, nl);
       changed(); rerenderEditor('n-' + nl.id);
       var ne = document.getElementById('n-' + nl.id); if (ne) ne.select();
+      return;
+    }
+    if (act === 'add-cat') {
+      var nc = { id: nid(), name: 'New category' };
+      state.cats.push(nc); changed(); rerenderEditor('cn-' + nc.id);
+      var ce = document.getElementById('cn-' + nc.id); if (ce) ce.select();
+      return;
+    }
+    if (act === 'del-cat') {
+      var did = b.getAttribute('data-id');
+      if (pendingDeleteCat === did) {
+        state.cats = state.cats.filter(function (x) { return x.id !== did; });
+        state.scenarios.forEach(function (sx) { sx.lines.forEach(function (l) { if (l.cat === did) l.cat = ''; }); });
+        pendingDeleteCat = null; changed(); rerenderEditor(null);
+      } else { pendingDeleteCat = did; rerenderEditor('dc-' + did); }
       return;
     }
     if (act === 'del-line') { var id = b.getAttribute('data-id'); s.lines = s.lines.filter(function (l) { return l.id !== id; }); changed(); rerenderEditor(null); return; }
@@ -1094,6 +1872,133 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   window.addEventListener('pagehide', function () { if (saveTimer) { clearTimeout(saveTimer); persist(); } });
 
   renderAll();
+
+  /* ---------- tour ---------- */
+  var TOUR = [
+    { sel: null, title: 'Welcome to your budget planner',
+      text: 'This app plans your month; Honeydue tracks it day to day. This tour shows what each part tells you and what to do with it. Use the arrow keys or the buttons; Close ends it any time.' },
+    { sel: '[data-tour="scenarios"]', title: 'Scenarios',
+      text: 'Each tab is a version of your plan, like now and after you both work and pay rent. Switch tabs to edit one, or copy a tab to try a change without touching the original.' },
+    { sel: '[data-tour="summary"]', title: 'Where the money goes',
+      text: 'Take-home pay split into necessities, savings and variable spending, with what’s left to assign. The ticks mark the 50/30/20 rule of thumb: a reference point, not a target.' },
+    { sel: '[data-tour="checkin"]', title: 'Monthly check-in',
+      text: 'Once a month, type each category’s total from Honeydue and your savings balances. You’ll see what ran over or under and whether each goal is on track. Balances start as what the plan expected; correct only what differs.' },
+    { sel: '[data-tour="income"]', title: 'Income',
+      text: 'Monthly take-home pay for each of you, after tax, and the account your paychecks land in. Every transfer starts from that account.' },
+    { sel: '[data-tour="need"]', title: 'Necessities',
+      text: 'Bills and essentials. Give each one how often it’s paid and the account it’s paid from; weekly and yearly amounts are converted to a monthly figure.' },
+    { sel: '[data-tour="save"]', title: 'Savings',
+      text: 'Money moved out first on payday. Give an item a goal (an amount, or months of necessities for an emergency fund) and, if it has a deadline, a By month to see whether you’ll make it.' },
+    { sel: '[data-tour="want"]', title: 'Variable spending',
+      text: 'Eating out, subscriptions, personal spending and a buffer for surprises. These are the amounts you’re most likely to adjust after a check-in.' },
+    { sel: '[data-tour="categories"]', title: 'Honeydue categories',
+      text: 'Group your lines into the categories you use in Honeydue. Rename, add or delete them any time; the Honeydue limits add up the lines in each one.' },
+    { sel: '[data-tour="yearly"]', title: 'Yearly costs',
+      text: 'Set the month each yearly bill is paid. A twelfth is set aside each payday in the account you choose, and the calendar warns if a bill would come before the fund has enough.' },
+    { sel: '[data-tour="accounts"]', title: 'Accounts',
+      text: 'Rename these to match your banks. The names appear in the transfer plan and in every account menu.' },
+    { sel: '[data-tour="transfers"]', title: 'Payday transfer plan',
+      text: 'The recurring transfers to set up at your bank: how much moves from the account your pay lands in to each of the others. What stays behind covers spending paid from that account.' },
+    { sel: '[data-tour="goals"]', title: 'Savings goals',
+      text: 'Each goal’s balance, target and status: on track, behind, or how much more a month it needs. The yearly-costs fund is listed first when it’s on.' },
+    { sel: '[data-tour="honeydue"]', title: 'Honeydue limits',
+      text: 'The monthly limit to enter for each Honeydue category; Copy list puts them all on your clipboard. Savings, and yearly costs while the fund is on, stay out of Honeydue.' },
+    { sel: '[data-tour="compare"]', title: 'Compare scenarios',
+      text: 'Your scenarios side by side: totals, what’s left to assign, savings rate and the size of a 6-month emergency fund.' },
+    { sel: '[data-tour="sharing"]', title: 'Sharing between devices',
+      text: 'There’s no server, so you share the plan as a file. After changing it, export and replace the shared file; on the other device, import it. Only one of you should edit at a time.' },
+    { sel: null, title: 'That’s the tour',
+      text: 'Replay it any time with the Tour button at the top. Your plan is saved on this device as you type.' }
+  ];
+  var tourSteps = [], tourI = -1;
+
+  function ensureTour() {
+    if (document.getElementById('tour')) return;
+    var wrap = document.createElement('div');
+    wrap.innerHTML = '<div id="tour-block" class="tour-block" hidden></div><div id="tour-spot" class="tour-spot" hidden></div>' +
+      '<div id="tour" class="tour" role="dialog" aria-modal="true" aria-labelledby="tour-title" hidden><div class="tour-in">' +
+      '<div class="tour-top"><span id="tour-n"></span><button class="icon" type="button" data-tour-act="close" aria-label="Close tour" title="Close">×</button></div>' +
+      '<h2 id="tour-title"></h2><p id="tour-text"></p>' +
+      '<div class="tour-btns"><button class="btn" type="button" data-tour-act="back">Back</button><button class="btn primary" type="button" data-tour-act="next">Next</button></div>' +
+      '</div></div>';
+    while (wrap.firstChild) document.body.appendChild(wrap.firstChild);
+    document.getElementById('tour').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-tour-act]'); if (!b) return;
+      var a = b.getAttribute('data-tour-act');
+      if (a === 'close') endTour();
+      else if (a === 'back') showStep(tourI - 1);
+      else if (a === 'next') { if (tourI >= tourSteps.length - 1) endTour(); else showStep(tourI + 1); }
+    });
+  }
+  function reducedMotion() { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); }
+
+  function startTour() {
+    lsSet(TOUR_KEY, '1');
+    if (banner && banner.kind === 'tour') { banner = null; renderBanner(); }
+    ensureTour();
+    tourSteps = TOUR.filter(function (st) { return !st.sel || document.querySelector(st.sel); });
+    root.inert = true; root.setAttribute('aria-hidden', 'true');
+    ['tour-block', 'tour-spot', 'tour'].forEach(function (id) { document.getElementById(id).hidden = false; });
+    showStep(0);
+    document.querySelector('#tour [data-tour-act="next"]').focus();
+  }
+  function showStep(i) {
+    if (!tourSteps.length) return;
+    tourI = Math.max(0, Math.min(i, tourSteps.length - 1));
+    var st = tourSteps[tourI], last = tourI === tourSteps.length - 1;
+    document.getElementById('tour-n').textContent = (tourI + 1) + ' of ' + tourSteps.length;
+    document.getElementById('tour-title').textContent = st.title;
+    document.getElementById('tour-text').textContent = st.text;
+    document.querySelector('#tour [data-tour-act="back"]').disabled = tourI === 0;
+    document.querySelector('#tour [data-tour-act="next"]').textContent = last ? 'Finish' : 'Next';
+    // Room below the page so the last parts can scroll above the caption bar.
+    document.body.style.paddingBottom = (document.querySelector('#tour .tour-in').offsetHeight + 24) + 'px';
+    placeSpot(true);
+  }
+  function placeSpot(scroll) {
+    if (tourI < 0) return;
+    var st = tourSteps[tourI], el = st && st.sel ? document.querySelector(st.sel) : null;
+    var spot = document.getElementById('tour-spot'), block = document.getElementById('tour-block');
+    if (!el) { spot.hidden = true; block.classList.add('dim'); return; }
+    block.classList.remove('dim'); spot.hidden = false;
+    if (scroll) el.scrollIntoView({ block: 'start', behavior: reducedMotion() ? 'auto' : 'smooth' });
+    var r = el.getBoundingClientRect(), pad = 6;
+    spot.style.top = (r.top - pad) + 'px'; spot.style.left = (r.left - pad) + 'px';
+    spot.style.width = (r.width + pad * 2) + 'px'; spot.style.height = (r.height + pad * 2) + 'px';
+  }
+  function endTour() {
+    if (tourI < 0) return;
+    tourI = -1;
+    ['tour-block', 'tour-spot', 'tour'].forEach(function (id) { document.getElementById(id).hidden = true; });
+    root.inert = false; root.removeAttribute('aria-hidden');
+    document.body.style.paddingBottom = '';
+    var tb = document.getElementById('tour-btn'); if (tb) tb.focus();
+  }
+  window.addEventListener('scroll', function () { placeSpot(false); }, { passive: true });
+  window.addEventListener('resize', function () { placeSpot(false); });
+  document.addEventListener('keydown', function (e) {
+    if (tourI < 0) return;
+    if (e.key === 'Escape') { e.preventDefault(); endTour(); return; }
+    if (e.key === 'ArrowRight') { e.preventDefault(); if (tourI >= tourSteps.length - 1) endTour(); else showStep(tourI + 1); return; }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); showStep(tourI - 1); return; }
+    if (e.key === 'Tab') {
+      var f = Array.prototype.filter.call(document.querySelectorAll('#tour button'), function (b) { return !b.disabled; });
+      if (!f.length) return;
+      var k = f.indexOf(document.activeElement);
+      e.preventDefault();
+      f[(k + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus();
+    }
+  });
+
+  // Read-only hooks for tests/smoke.js (no data leaves the device).
+  window.__hbp = {
+    migrate: migrate, validPlan: validPlan, monthIndex: monthIndex, monthKey: monthKey,
+    thisMonth: thisMonth, prevMonth: prevMonth, state: function () { return state; },
+    honeydueText: function () { return honeydueText(scn()); },
+    spendRows: function (m) { return spendRows(scn(), m); },
+    dateStatus: dateStatus, paceStatus: paceStatus, projectFund: projectFund,
+    tourState: function () { var st = tourSteps[tourI]; return { i: tourI, n: tourSteps.length, sel: st ? st.sel : null }; }
+  };
 
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
     window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
