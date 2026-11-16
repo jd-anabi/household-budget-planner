@@ -385,6 +385,33 @@ section('checkin', async () => {
   await ctx.close();
 });
 
+section('goals', async () => {
+  const { ctx, page } = await openPage({ date: '2026-11-16T12:00' });
+  const r = await page.evaluate(() => {
+    const h = window.__hbp;
+    return [
+      h.dateStatus(6000, 0, 400, '2026-10', '2027-06'), h.dateStatus(6000, 0, 400, '2026-10', '2028-02'),
+      h.dateStatus(6000, 0, 400, '2026-10', '2026-09'), h.dateStatus(6000, 6000, 400, '2026-10', '2027-06'),
+      h.paceStatus(600, 700), h.paceStatus(700, 700)];
+  });
+  check('date: behind', r[0].text === 'Needs $350/mo more to make Jun 2027' && r[0].sub === 'At $400 a month: Jan 2028' && r[0].tone === 'warn', JSON.stringify(r[0]));
+  check('date: on track', r[1].text === 'On track for Feb 2028' && r[1].tone === 'ok', JSON.stringify(r[1]));
+  check('date: passed', r[2].text === 'Date passed, $6,000 short' && r[2].tone === 'bad', JSON.stringify(r[2]));
+  check('reached', r[3].text === 'Reached', JSON.stringify(r[3]));
+  check('pace: behind', r[4].text === '$100 behind plan' && r[4].tone === 'warn', JSON.stringify(r[4]));
+  check('pace: on track', r[5].text === 'On track', JSON.stringify(r[5]));
+
+  const mv = await lineId(page, 'Move-in fund (deposit, first month, movers)');
+  await page.selectOption(`#gbm-${mv}`, '06');
+  await page.selectOption(`#gby-${mv}`, '2027');
+  const chip = () => page.locator(`[data-goal="${mv}"] .chip`).first().innerText();
+  check('a goal date shows how much more is needed', (await chip()) === 'Needs $350/mo more to make Jun 2027', await chip());
+  await page.click('[data-act="ci-start"]');
+  const ciChip = await page.locator(`[data-out="cigs-${mv}"] .chip`).innerText();
+  check('a goal on an unconfirmed check-in balance is marked assumed', ciChip.endsWith('(assumed)'), ciChip);
+  await ctx.close();
+});
+
 /* ---------------- runner ---------------- */
 
 (async () => {
