@@ -3,6 +3,9 @@
 A small installable web app (PWA) for a couple to plan a monthly household budget together:
 split take-home pay into necessities, savings and variable spending, see the payday transfers
 between accounts, track savings goals, and compare scenarios ("Now" vs "Both working + rent").
+Lines are grouped into Honeydue categories, a monthly check-in compares Honeydue's actual totals
+with the plan, goals can have a "by" date, a yearly-costs fund sets aside a twelfth of yearly bills,
+and an in-app tour explains each part.
 Live at https://jd-anabi.github.io/household-budget-planner/ (GitHub Pages, deployed from `main`, root).
 
 It is a **planner**, not a tracker. Day-to-day transaction tracking happens in Honeydue; this app
@@ -28,34 +31,64 @@ per-transaction tracking.
 - `sw.js`: service worker. Network-first for same-origin files (so pushes reach users when online),
   cache fallback offline; cache-first for Google Fonts.
 - `manifest.webmanifest`, `icons/`: install metadata and icons.
-- `tests/smoke.js`: headless-browser smoke test (Playwright). Not part of the app, so it stays out of `ASSETS`.
+- `tests/smoke.js`: headless-browser smoke test (Playwright) in named sections; `tests/fixtures/plan-v1.json`
+  is a v1 export of the example plan for migration tests. Not part of the app, so they stay out of `ASSETS`.
+- `docs/superpowers/`: the design and plan for the v2 features. `.nojekyll` makes GitHub Pages serve
+  files as-is, so Markdown here can never break a deploy.
 
-## Data model (`state`, v1)
+## Data model (`state`, v2)
 
 ```
-{ v: 1, touched, modifiedAt, lastSync: {at, kind: 'export'|'import', by} | null, active,
+{ v: 2, touched, modifiedAt, lastSync: {at, kind: 'export'|'import', by} | null, active,
   accounts: { jchk, mchk, jsav, msav, inv: { name, note } },
+  cats: [{ id, name }],                                 // Honeydue categories, shared by all scenarios
+  fund: { acct: '' | 'jsav'|'msav'|'inv', saved },      // yearly-costs fund; '' = off
+  checkins: [{ month: 'YYYY-MM', scn, scnName, startedAt, by,          // one per month, sorted
+    spend: [{ key: catId | 'line:'+lineId | 'other', name, planned, actual | null, note }],
+    goals: [{ line, name, acct, target, planned, months, start, balance, assumed }],
+    fund:  null | { acct, planned, due, months, start, balance, assumed } }],
   scenarios: [{ id, name, sub, depositTo: 'jchk'|'mchk',
     incomes: [{ id, name, amt }],                       // monthly take-home
     lines:   [{ id, g: 'need'|'save'|'want', name, amt, f: 'mo'|'wk'|'yr', acct,
-                goal?: { mode: 'none'|'amount'|'months', amount, months, saved } }] }] }
+                cat?: '' | catId, due?: 0..12,           // need/want only; due = month a yearly line is paid
+                goal?: { mode: 'none'|'amount'|'months', amount, months, saved, by: '' | 'YYYY-MM' } }] }] }
 ```
 
-- Saved to `localStorage` key `household-budget-planner:plan:v1` on every edit (debounced).
-- Export file: `{ app: 'household-budget-planner', v: 1, exportedAt, exportedBy, state }`, named
+- Saved to `localStorage` key `household-budget-planner:plan:v1` on every edit (debounced). The key
+  name is an address, not the data version.
+- Export file: `{ app: 'household-budget-planner', v: 2, exportedAt, exportedBy, state }`, named
   `budget-plan-YYYY-MM-DD.json`. On touch devices it uses the share sheet; otherwise a download.
   Import validates, then asks before replacing the device's plan.
+- `migrate()` upgrades v1 to v2 on load and on import by only adding fields (`cats: []`,
+  `checkins: []`, `fund: {acct: '', saved: 0}`, `cat: ''`, `due: 0`, `by: ''`); unknown fields are kept.
+  Before upgrading a stored v1 plan, the raw JSON is copied to `household-budget-planner:plan:v1-backup`.
+- Guard: a stored plan or imported file with `v` newer than the app (`DATA_V`) is never saved over;
+  the app shows "This plan was saved by a newer version of the app…" and blocks export/import.
+  The v1 app has the same guard, so rolling the v2 features back cannot overwrite a v2 plan.
 - Monthly conversion: weekly × 52/12, yearly × 1/12. All amounts are after-tax dollars.
-- Goal time: months = ceil((goal − saved) / monthly contribution). A "months" goal targets
-  N × the scenario's monthly necessities (used for the emergency fund).
+- Goal balance is one number: the latest check-in's `balance` for that goal (matched by line id, then
+  name), else `goal.saved`; "Saved so far" edits that same number. Check-in balances are pre-filled
+  as `start + planned × months` (whole dollars) and marked `assumed` until edited.
+- Goal status: base month = latest check-in month, else last month. With `by`: on track if the monthly
+  amount ≥ (goal − balance) / months left. Without: on track if balance ≥ first start + Σ planned × months.
+  A "months" goal targets N × the scenario's monthly necessities (used for the emergency fund).
+- Yearly-costs fund (when `fund.acct` is set): yearly lines' monthly share is transferred to that
+  account; the 12-month projection is F_k = B + k·c − Σ bills due; shortfall S = max(0, −min F_k).
+  Honeydue limits then leave yearly lines out. A check-in plans a dated yearly line in full in its due
+  month and at 0 in other months (spread lines at 1/12).
 - Transfer plan: paychecks land in `depositTo`; every other account receives the sum of lines
-  assigned to it; the rest stays in the landing account.
+  assigned to it (plus the fund share for the fund account); the rest stays in the landing account.
+- Tour: `household-budget-planner:tour-seen` in localStorage, per device, not exported.
 
 ## How the UI code works
 
 - `renderAll()` rebuilds everything; use it for structural changes (add/remove a line, switch scenario).
 - `refresh()` updates only derived numbers, the summary and the side column, so inputs keep focus
-  while typing. Prefer it for value edits.
+  while typing. Prefer it for value edits. It rebuilds the side column every time, so **inputs belong
+  in the editor column** (check-in, categories and yearly cards live there); the side column is read-only.
+- Editor cards, top to bottom: check-in, income, necessities, savings, variable, Honeydue categories,
+  yearly costs, accounts. Every card has a `data-tour` attribute the tour points at.
+- `window.__hbp` exposes read-only helpers (migration, month maths, statuses, projection) for the tests.
 - Events are delegated on `#root`: inputs carry `data-scope` / `data-id` / `data-field`, buttons carry `data-act`.
 - Destructive actions use a click-twice confirm, not `confirm()`.
 
@@ -73,6 +106,8 @@ Start with `node tests/smoke.js [screenshot-dir]`. It serves the repo itself and
 below (for the current data version only), no horizontal scroll at laptop and 390px widths in both themes, and
 no console errors; it exits non-zero on failure. It can't judge legibility, so look at the screenshots too.
 If you bump `v`, update `DATA_VERSION` in the test and add a check that an older plan file still imports.
+Run part of it with `ONLY=checkin,yearly node tests/smoke.js`. Sections that depend on the date fix it
+with `openPage({ date: '2026-11-16T12:00' })`.
 
 1. `python3 -m http.server 8000` in the repo, open http://localhost:8000.
 2. Check a laptop width and a phone width (~390px), light and dark.
@@ -82,8 +117,9 @@ If you bump `v`, update `DATA_VERSION` in the test and add a check that an older
 
 ## Feature ideas under consideration
 
-1. Monthly check-in: enter each category's actual total (from Honeydue) and compare with the plan.
-2. Savings projections with interest: B_t = B_0 (1+r)^t + s((1+r)^t − 1)/r at monthly rate r, charted per goal.
-3. First-time setup walkthrough (income, rent, fixed bills) instead of editing examples.
-4. A calendar of when yearly costs come due.
-5. Per-paycheck transfers for twice-monthly or biweekly pay.
+Done: monthly check-in (was 1), calendar of yearly costs as part of the yearly-costs fund (was 4).
+The in-app tour covers part of idea 3: it explains the app but doesn't collect numbers.
+
+1. Savings projections with interest: B_t = B_0 (1+r)^t + s((1+r)^t − 1)/r at monthly rate r, charted per goal.
+2. First-time setup walkthrough that collects income, rent and fixed bills instead of editing examples.
+3. Per-paycheck transfers for twice-monthly or biweekly pay.
