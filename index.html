@@ -323,6 +323,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   var PLAN_KEY = 'household-budget-planner:plan:v1';
   var NAME_KEY = 'household-budget-planner:name';
   var APP_ID = 'household-budget-planner';
+  var DATA_V = 1;
+  var NEWER_MSG = 'This plan was saved by a newer version of the app. Reload while online to update.';
   var FREQ = { mo: { label: 'monthly', k: 1 }, wk: { label: 'weekly', k: 52 / 12 }, yr: { label: 'yearly', k: 1 / 12 } };
   var GROUPS = [
     { key: 'need', name: 'Necessities', desc: 'Bills and essentials you have to pay every month.' },
@@ -426,13 +428,23 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       p.scenarios.every(function (s) { return s && Array.isArray(s.lines) && Array.isArray(s.incomes); }));
   }
 
+  // A plan saved by a newer version of the app must never be overwritten by this one:
+  // show the example plan, save nothing, and block export/import until a reload brings the new app.
+  function tooNew(p) { return !!(p && typeof p === 'object' && typeof p.v === 'number' && p.v > DATA_V); }
+
   var state = null;
-  try { var stored = JSON.parse(lsGet(PLAN_KEY) || 'null'); if (validPlan(stored)) state = stored; } catch (e) { state = null; }
+  var blocked = false;
+  try {
+    var stored = JSON.parse(lsGet(PLAN_KEY) || 'null');
+    if (tooNew(stored)) blocked = true;
+    else if (validPlan(stored)) state = stored;
+  } catch (e) { state = null; }
   if (!state) state = defaults();
   var deviceName = lsGet(NAME_KEY) || '';
   var savedAt = state.modifiedAt || 0;
   var storageOk = true;
-  var banner = null;          // {kind:'import'|'error'|'info', ...}
+  function newerBanner() { return { kind: 'error', html: '<b>' + esc(NEWER_MSG) + '</b>' }; }
+  var banner = blocked ? newerBanner() : null;          // {kind:'import'|'error'|'info', ...}
   var pendingDelete = null;
   var pendingReset = false;
   var copyFallback = false;
@@ -442,6 +454,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   }
 
   function persist() {
+    if (blocked) return;
     storageOk = lsSet(PLAN_KEY, JSON.stringify(state));
     if (storageOk) savedAt = Date.now();
     renderSaveStatus();
@@ -893,7 +906,10 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   /* ---------- export / import ---------- */
   function ymd(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
 
+  function showNewer() { banner = newerBanner(); renderBanner(); window.scrollTo(0, 0); }
+
   function exportPlan() {
+    if (blocked) { showNewer(); return; }
     var now = new Date();
     state.lastSync = { at: now.getTime(), kind: 'export', by: deviceName };
     persist();
@@ -928,6 +944,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   }
 
   function startImport() {
+    if (blocked) { showNewer(); return; }
     var input = document.getElementById('import-file');
     input.value = '';
     input.click();
@@ -940,7 +957,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     reader.onload = function () {
       var p = null;
       try { p = JSON.parse(String(reader.result)); } catch (err) { p = null; }
-      if (p && p.app === APP_ID && validPlan(p.state)) {
+      if (p && p.app === APP_ID && (tooNew(p) || tooNew(p.state))) {
+        banner = newerBanner();
+      } else if (p && p.app === APP_ID && validPlan(p.state)) {
         banner = { kind: 'import', payload: p };
       } else {
         banner = { kind: 'error', html: '<b>That file isn’t a budget plan file.</b><small>Choose a file this app exported; its name starts with “budget-plan-”.</small>' };
