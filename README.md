@@ -40,3 +40,5 @@ Importing replaces the plan on that device, so only one person should edit at a 
 - `index.html`: the whole app (HTML, CSS, JavaScript; no build step, no dependencies)
 - `manifest.webmanifest`, `icons/`: app name and icons for installing
 - `sw.js`: service worker for offline use
+- `tests/smoke.js`: automated check of loading, export/import, offline use and phone layout
+  (`node tests/smoke.js`; needs Playwright, see the top of the file)
