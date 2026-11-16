@@ -40,6 +40,8 @@
   --ok-bg: #e5f3e6;
   --warn-bg: #fbf0dc;
   --bad-bg: #fbe5e3;
+  --dim: rgba(15, 18, 30, 0.5);
+  --spot: var(--need);
   --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
   --font-body: "Public Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
   --radius: 10px;
@@ -65,6 +67,8 @@
     --ok-bg: #1c2e21;
     --warn-bg: #33281a;
     --bad-bg: #3a1e1e;
+    --dim: rgba(0, 0, 0, 0.62);
+    --spot: var(--need);
     color-scheme: dark;
   }
 }
@@ -87,6 +91,8 @@
   --ok-bg: #1c2e21;
   --warn-bg: #33281a;
   --bad-bg: #3a1e1e;
+  --dim: rgba(0, 0, 0, 0.62);
+  --spot: var(--need);
   color-scheme: dark;
 }
 
@@ -366,6 +372,20 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 .sync-meta { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); }
 .sync-meta b { color: var(--ink); font-weight: 600; }
 .how { margin: 0; padding-left: 18px; font-size: 13px; color: var(--ink-2); display: flex; flex-direction: column; gap: 4px; }
+.tour-block { position: fixed; inset: 0; z-index: 50; }
+.tour-block.dim { background: var(--dim); }
+.tour-spot { position: fixed; z-index: 51; border-radius: 12px; pointer-events: none;
+  box-shadow: 0 0 0 3px var(--spot), 0 0 0 100vmax var(--dim); transition: top 0.25s, left 0.25s, width 0.25s, height 0.25s; }
+.tour { position: fixed; z-index: 52; left: 0; right: 0; bottom: 0; display: flex; justify-content: center;
+  padding: 0 12px max(12px, env(safe-area-inset-bottom)); pointer-events: none; }
+.tour-in { pointer-events: auto; width: 100%; max-width: 640px; background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); padding: 12px 16px 14px; }
+.tour-top { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 600; color: var(--ink-3); }
+.tour h2 { font-size: 17px; margin: 2px 0 4px; }
+.tour p { margin: 0 0 12px; font-size: 14px; color: var(--ink-2); line-height: 1.45; }
+.tour-btns { display: flex; justify-content: flex-end; gap: 8px; }
+.tour[hidden], .tour-spot[hidden], .tour-block[hidden] { display: none; }
+[data-tour] { scroll-margin-top: 12px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 </style>
 </head>
@@ -579,7 +599,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   var savedAt = state.modifiedAt || 0;
   var storageOk = true;
   function newerBanner() { return { kind: 'error', html: '<b>' + esc(NEWER_MSG) + '</b>' }; }
-  var banner = blocked ? newerBanner() : null;          // {kind:'import'|'error'|'info', ...}
+  var TOUR_KEY = 'household-budget-planner:tour-seen';
+  var banner = blocked ? newerBanner() : (lsGet(TOUR_KEY) ? null : { kind: 'tour' });          // {kind:'import'|'error'|'info', ...}
   var pendingDelete = null;
   var pendingDeleteCat = null;
   var pendingCiDel = null;   // month of a check-in armed for deletion
@@ -946,11 +967,12 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
           '<p class="sub">Sketch where each month’s take-home pay goes, compare now with later, then copy the category limits into Honeydue.</p></div>' +
           '<div class="actions"><span id="save-status"></span>' +
           '<button class="btn" type="button" data-act="import">Import plan file</button>' +
-          '<button class="btn primary" type="button" data-act="export">Export plan file</button></div>' +
+          '<button class="btn primary" type="button" data-act="export">Export plan file</button>' +
+          '<button class="btn ghost" id="tour-btn" type="button" data-act="tour">Tour</button></div>' +
         '</header>' +
         '<div id="banner"></div>' +
-        '<nav class="tabs" id="tabs" role="tablist" aria-label="Scenarios"></nav>' +
-        '<section class="card summary" id="summary" aria-label="Summary"></section>' +
+        '<nav class="tabs" id="tabs" role="tablist" aria-label="Scenarios" data-tour="scenarios"></nav>' +
+        '<section class="card summary" id="summary" aria-label="Summary" data-tour="summary"></section>' +
         '<div class="grid">' +
           '<div class="col" id="editor">' + editorHTML(s) + '</div>' +
           '<div class="col" id="side"></div>' +
@@ -982,6 +1004,12 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function renderBanner() {
     var el = document.getElementById('banner'); if (!el) return;
     if (!banner) { el.innerHTML = ''; return; }
+    if (banner.kind === 'tour') {
+      el.innerHTML = '<div class="banner"><span class="msg"><b>New here? Take a 2-minute tour of what each part shows.</b></span>' +
+        '<span class="actions"><button class="btn primary" type="button" data-act="tour-start">Start tour</button>' +
+        '<button class="btn ghost" type="button" data-act="tour-later">Not now</button></span></div>';
+      return;
+    }
     if (banner.kind === 'import') {
       var p = banner.payload;
       var from = p.exportedBy ? ' from ' + esc(p.exportedBy) : '';
@@ -1012,7 +1040,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   function editorHTML(s) {
     var h = checkinHTML();
-    h += '<section class="card" aria-label="Income">' +
+    h += '<section class="card" aria-label="Income" data-tour="income">' +
       '<div class="card-head"><h2>Income</h2><span class="meta" data-out="income-total"></span></div>' +
       '<div class="fields">' +
         '<label class="field" for="scn-name">Scenario name<input class="in" id="scn-name" data-scope="scn" data-field="name" value="' + esc(s.name) + '"></label>' +
@@ -1031,7 +1059,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
     GROUPS.forEach(function (G) {
       var lines = s.lines.filter(function (l) { return l.g === G.key; });
-      h += '<section class="card group" data-g="' + G.key + '" aria-label="' + G.name + '">' +
+      h += '<section class="card group" data-g="' + G.key + '" data-tour="' + G.key + '" aria-label="' + G.name + '">' +
         '<div class="card-head"><div><h2>' + G.name + '</h2><p class="desc">' + G.desc + '</p></div>' +
         '<div style="text-align:right"><div class="total" data-out="gt-' + G.key + '"></div><div class="meta" data-out="gp-' + G.key + '"></div></div></div>' +
         '<div class="rows">' +
@@ -1054,7 +1082,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     h += categoriesHTML(s);
     h += yearlyHTML(s);
 
-    h += '<section class="card" aria-label="Account names"><div class="card-head"><h2>Accounts</h2><span class="meta">Rename to match your banks</span></div><div class="rows">';
+    h += '<section class="card" aria-label="Account names" data-tour="accounts"><div class="card-head"><h2>Accounts</h2><span class="meta">Rename to match your banks</span></div><div class="rows">';
     ACCT_ORDER.forEach(function (a) {
       var x = state.accounts[a] || { name: a, note: '' };
       h += '<div class="acct-row"><input class="in" id="an-' + a + '" data-scope="acct" data-id="' + a + '" data-field="name" value="' + esc(x.name) + '" aria-label="Account name">' +
@@ -1371,7 +1399,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function syncCardHTML() {
     var ls = state.lastSync;
     var last = ls ? (ls.kind === 'export' ? 'Last exported ' : 'Last imported ') + esc(when(ls.at)) + (ls.by ? ' (' + esc(ls.by) + ')' : '') : 'Not exported or imported yet';
-    return '<section class="card" aria-label="Sharing between devices"><div class="card-head"><h2>Sharing between devices</h2></div>' +
+    return '<section class="card" aria-label="Sharing between devices" data-tour="sharing"><div class="card-head"><h2>Sharing between devices</h2></div>' +
       '<div class="sync-meta"><span><b>' + (storageOk ? 'Saved on this device automatically' : 'Can’t save on this device') + '</b></span>' +
       '<span>' + last + '</span>' +
       (unsyncedEdits() ? '<span class="chip warn" style="align-self:flex-start">Edits not exported yet</span>' : '') + '</div>' +
@@ -1385,11 +1413,11 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   function renderSide(s, c) {
     var t = transfers(s, c);
-    var h = '<section class="card flow" aria-label="Payday transfer plan"><div class="card-head"><h2>Payday transfer plan</h2><span class="meta">Set these up as recurring transfers</span></div>' +
+    var h = '<section class="card flow" aria-label="Payday transfer plan" data-tour="transfers"><div class="card-head"><h2>Payday transfer plan</h2><span class="meta">Set these up as recurring transfers</span></div>' +
       flowSVG(t, c) + stepsHTML(s, c, t) + '</section>';
 
     var goals = s.lines.filter(function (l) { return l.g === 'save' && goalInfo(l, c); });
-    h += '<section class="card" aria-label="Savings goals"><div class="card-head"><h2>Savings goals</h2></div>';
+    h += '<section class="card" aria-label="Savings goals" data-tour="goals"><div class="card-head"><h2>Savings goals</h2></div>';
     if (fundOn()) {
       var fst = fundStatus(s), nY = s.lines.filter(isYearly).length;
       h += '<div class="goals" style="margin-bottom:14px"><div class="gl" data-goal="fund"><div class="gl-top"><span>Yearly costs fund<span class="tag">' + esc(acctName(state.fund.acct)) + '</span></span>' +
@@ -1417,7 +1445,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     h += '</section>';
 
     var items = hdItems(s);
-    h += '<section class="card" aria-label="Honeydue category limits"><div class="card-head"><h2>Honeydue limits</h2>' +
+    h += '<section class="card" aria-label="Honeydue category limits" data-tour="honeydue"><div class="card-head"><h2>Honeydue limits</h2>' +
       '<button class="btn" type="button" data-act="copy-hd">Copy list</button></div>' +
       '<p class="note">' + esc(HD_NOTE) + '</p>' +
       '<table class="hd">';
@@ -1436,7 +1464,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (copyFallback) h += '<label class="field" for="hd-copy">Select all and copy:<textarea class="copybox" id="hd-copy" readonly>' + esc(honeydueText(s)) + '</textarea></label>';
     h += '</section>';
 
-    h += '<section class="card" aria-label="Compare scenarios"><div class="card-head"><h2>Compare scenarios</h2></div><div class="cmp-wrap"><table class="cmp"><thead><tr><th></th>';
+    h += '<section class="card" aria-label="Compare scenarios" data-tour="compare"><div class="card-head"><h2>Compare scenarios</h2></div><div class="cmp-wrap"><table class="cmp"><thead><tr><th></th>';
     var cs = state.scenarios.map(function (x) { return { s: x, c: calc(x) }; });
     cs.forEach(function (o) { h += '<th><button type="button" data-act="tab" data-id="' + esc(o.s.id) + '">' + esc(o.s.name || 'Untitled') + '</button></th>'; });
     h += '</tr></thead><tbody>';
@@ -1709,6 +1737,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (act !== 'reset') pendingReset = false;
     if (act !== 'del-cat') pendingDeleteCat = null;
     if (act !== 'ci-del') pendingCiDel = null;
+    if (act === 'tour' || act === 'tour-start') { startTour(); return; }
+    if (act === 'tour-later') { lsSet(TOUR_KEY, '1'); banner = null; renderBanner(); return; }
     if (act === 'ci-start') {
       var mSel = document.getElementById('ci-month');
       if (!mSel || !mSel.value) return;
@@ -1804,13 +1834,131 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   renderAll();
 
+  /* ---------- tour ---------- */
+  var TOUR = [
+    { sel: null, title: 'Welcome to your budget planner',
+      text: 'This app plans your month; Honeydue tracks it day to day. This tour shows what each part tells you and what to do with it. Use the arrow keys or the buttons; Close ends it any time.' },
+    { sel: '[data-tour="scenarios"]', title: 'Scenarios',
+      text: 'Each tab is a version of your plan, like now and after you both work and pay rent. Switch tabs to edit one, or copy a tab to try a change without touching the original.' },
+    { sel: '[data-tour="summary"]', title: 'Where the money goes',
+      text: 'Take-home pay split into necessities, savings and variable spending, with what’s left to assign. The ticks mark the 50/30/20 rule of thumb: a reference point, not a target.' },
+    { sel: '[data-tour="checkin"]', title: 'Monthly check-in',
+      text: 'Once a month, type each category’s total from Honeydue and your savings balances. You’ll see what ran over or under and whether each goal is on track. Balances start as what the plan expected; correct only what differs.' },
+    { sel: '[data-tour="income"]', title: 'Income',
+      text: 'Monthly take-home pay for each of you, after tax, and the account your paychecks land in. Every transfer starts from that account.' },
+    { sel: '[data-tour="need"]', title: 'Necessities',
+      text: 'Bills and essentials. Give each one how often it’s paid and the account it’s paid from; weekly and yearly amounts are converted to a monthly figure.' },
+    { sel: '[data-tour="save"]', title: 'Savings',
+      text: 'Money moved out first on payday. Give an item a goal (an amount, or months of necessities for an emergency fund) and, if it has a deadline, a By month to see whether you’ll make it.' },
+    { sel: '[data-tour="want"]', title: 'Variable spending',
+      text: 'Eating out, subscriptions, personal spending and a buffer for surprises. These are the amounts you’re most likely to adjust after a check-in.' },
+    { sel: '[data-tour="categories"]', title: 'Honeydue categories',
+      text: 'Group your lines into the categories you use in Honeydue. Rename, add or delete them any time; the Honeydue limits add up the lines in each one.' },
+    { sel: '[data-tour="yearly"]', title: 'Yearly costs',
+      text: 'Set the month each yearly bill is paid. A twelfth is set aside each payday in the account you choose, and the calendar warns if a bill would come before the fund has enough.' },
+    { sel: '[data-tour="accounts"]', title: 'Accounts',
+      text: 'Rename these to match your banks. The names appear in the transfer plan and in every account menu.' },
+    { sel: '[data-tour="transfers"]', title: 'Payday transfer plan',
+      text: 'The recurring transfers to set up at your bank: how much moves from the account your pay lands in to each of the others. What stays behind covers spending paid from that account.' },
+    { sel: '[data-tour="goals"]', title: 'Savings goals',
+      text: 'Each goal’s balance, target and status: on track, behind, or how much more a month it needs. The yearly-costs fund is listed first when it’s on.' },
+    { sel: '[data-tour="honeydue"]', title: 'Honeydue limits',
+      text: 'The monthly limit to enter for each Honeydue category; Copy list puts them all on your clipboard. Savings, and yearly costs while the fund is on, stay out of Honeydue.' },
+    { sel: '[data-tour="compare"]', title: 'Compare scenarios',
+      text: 'Your scenarios side by side: totals, what’s left to assign, savings rate and the size of a 6-month emergency fund.' },
+    { sel: '[data-tour="sharing"]', title: 'Sharing between devices',
+      text: 'There’s no server, so you share the plan as a file. After changing it, export and replace the shared file; on the other device, import it. Only one of you should edit at a time.' },
+    { sel: null, title: 'That’s the tour',
+      text: 'Replay it any time with the Tour button at the top. Your plan is saved on this device as you type.' }
+  ];
+  var tourSteps = [], tourI = -1;
+
+  function ensureTour() {
+    if (document.getElementById('tour')) return;
+    var wrap = document.createElement('div');
+    wrap.innerHTML = '<div id="tour-block" class="tour-block" hidden></div><div id="tour-spot" class="tour-spot" hidden></div>' +
+      '<div id="tour" class="tour" role="dialog" aria-modal="true" aria-labelledby="tour-title" hidden><div class="tour-in">' +
+      '<div class="tour-top"><span id="tour-n"></span><button class="icon" type="button" data-tour-act="close" aria-label="Close tour" title="Close">×</button></div>' +
+      '<h2 id="tour-title"></h2><p id="tour-text"></p>' +
+      '<div class="tour-btns"><button class="btn" type="button" data-tour-act="back">Back</button><button class="btn primary" type="button" data-tour-act="next">Next</button></div>' +
+      '</div></div>';
+    while (wrap.firstChild) document.body.appendChild(wrap.firstChild);
+    document.getElementById('tour').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-tour-act]'); if (!b) return;
+      var a = b.getAttribute('data-tour-act');
+      if (a === 'close') endTour();
+      else if (a === 'back') showStep(tourI - 1);
+      else if (a === 'next') { if (tourI >= tourSteps.length - 1) endTour(); else showStep(tourI + 1); }
+    });
+  }
+  function reducedMotion() { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); }
+
+  function startTour() {
+    lsSet(TOUR_KEY, '1');
+    if (banner && banner.kind === 'tour') { banner = null; renderBanner(); }
+    ensureTour();
+    tourSteps = TOUR.filter(function (st) { return !st.sel || document.querySelector(st.sel); });
+    root.inert = true; root.setAttribute('aria-hidden', 'true');
+    ['tour-block', 'tour-spot', 'tour'].forEach(function (id) { document.getElementById(id).hidden = false; });
+    showStep(0);
+    document.querySelector('#tour [data-tour-act="next"]').focus();
+  }
+  function showStep(i) {
+    if (!tourSteps.length) return;
+    tourI = Math.max(0, Math.min(i, tourSteps.length - 1));
+    var st = tourSteps[tourI], last = tourI === tourSteps.length - 1;
+    document.getElementById('tour-n').textContent = (tourI + 1) + ' of ' + tourSteps.length;
+    document.getElementById('tour-title').textContent = st.title;
+    document.getElementById('tour-text').textContent = st.text;
+    document.querySelector('#tour [data-tour-act="back"]').disabled = tourI === 0;
+    document.querySelector('#tour [data-tour-act="next"]').textContent = last ? 'Finish' : 'Next';
+    // Room below the page so the last parts can scroll above the caption bar.
+    document.body.style.paddingBottom = (document.querySelector('#tour .tour-in').offsetHeight + 24) + 'px';
+    placeSpot(true);
+  }
+  function placeSpot(scroll) {
+    if (tourI < 0) return;
+    var st = tourSteps[tourI], el = st && st.sel ? document.querySelector(st.sel) : null;
+    var spot = document.getElementById('tour-spot'), block = document.getElementById('tour-block');
+    if (!el) { spot.hidden = true; block.classList.add('dim'); return; }
+    block.classList.remove('dim'); spot.hidden = false;
+    if (scroll) el.scrollIntoView({ block: 'start', behavior: reducedMotion() ? 'auto' : 'smooth' });
+    var r = el.getBoundingClientRect(), pad = 6;
+    spot.style.top = (r.top - pad) + 'px'; spot.style.left = (r.left - pad) + 'px';
+    spot.style.width = (r.width + pad * 2) + 'px'; spot.style.height = (r.height + pad * 2) + 'px';
+  }
+  function endTour() {
+    if (tourI < 0) return;
+    tourI = -1;
+    ['tour-block', 'tour-spot', 'tour'].forEach(function (id) { document.getElementById(id).hidden = true; });
+    root.inert = false; root.removeAttribute('aria-hidden');
+    document.body.style.paddingBottom = '';
+    var tb = document.getElementById('tour-btn'); if (tb) tb.focus();
+  }
+  window.addEventListener('scroll', function () { placeSpot(false); }, { passive: true });
+  window.addEventListener('resize', function () { placeSpot(false); });
+  document.addEventListener('keydown', function (e) {
+    if (tourI < 0) return;
+    if (e.key === 'Escape') { e.preventDefault(); endTour(); return; }
+    if (e.key === 'ArrowRight') { e.preventDefault(); if (tourI >= tourSteps.length - 1) endTour(); else showStep(tourI + 1); return; }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); showStep(tourI - 1); return; }
+    if (e.key === 'Tab') {
+      var f = Array.prototype.filter.call(document.querySelectorAll('#tour button'), function (b) { return !b.disabled; });
+      if (!f.length) return;
+      var k = f.indexOf(document.activeElement);
+      e.preventDefault();
+      f[(k + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus();
+    }
+  });
+
   // Read-only hooks for tests/smoke.js (no data leaves the device).
   window.__hbp = {
     migrate: migrate, validPlan: validPlan, monthIndex: monthIndex, monthKey: monthKey,
     thisMonth: thisMonth, prevMonth: prevMonth, state: function () { return state; },
     honeydueText: function () { return honeydueText(scn()); },
     spendRows: function (m) { return spendRows(scn(), m); },
-    dateStatus: dateStatus, paceStatus: paceStatus, projectFund: projectFund
+    dateStatus: dateStatus, paceStatus: paceStatus, projectFund: projectFund,
+    tourState: function () { var st = tourSteps[tourI]; return { i: tourI, n: tourSteps.length, sel: st ? st.sel : null }; }
   };
 
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {

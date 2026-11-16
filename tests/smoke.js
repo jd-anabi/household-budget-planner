@@ -109,10 +109,9 @@ async function firstAmount(page) {
   return (await input.count()) ? input.inputValue() : null;
 }
 
-// The banner fills in asynchronously after a file is chosen (FileReader); wait up to 3 s for text.
-async function bannerText(page) {
-  await page.waitForFunction(() => document.getElementById('banner').innerText.trim().length > 0, null, { timeout: 3000 }).catch(() => {});
-  return page.locator('#banner').innerText();
+// The banner fills in asynchronously after a file is chosen (FileReader); wait up to 3 s for the text.
+function bannerHas(page, text) {
+  return page.waitForFunction((t) => document.getElementById('banner').innerText.includes(t), text, { timeout: 3000 }).then(() => true, () => false);
 }
 
 // serviceWorker.ready never settles if registration fails, so give it a deadline.
@@ -237,8 +236,7 @@ section('guard', async () => {
   const f = path.join(TMP, 'newer.json');
   fs.writeFileSync(f, JSON.stringify({ app: APP_ID, v: DATA_VERSION + 1, state: JSON.parse(newer) }));
   await b.page.setInputFiles('#import-file', f);
-  await bannerText(b.page);
-  check('importing a newer file shows the newer-version message', (await bannerText(b.page)).includes('newer version'));
+  check('importing a newer file shows the newer-version message', await bannerHas(b.page, 'newer version'));
   await b.ctx.close();
 });
 
@@ -459,6 +457,61 @@ section('yearly', async () => {
   const tr2 = rows.find((r) => r.name === 'Transportation');
   check('with the fund off, yearly costs are back in the limits at 1/12', tr2 && tr2.amt === '$200 / mo' && tr2.text.includes('includes yearly costs at 1/12'), JSON.stringify(tr2));
   await ctx.close();
+});
+
+// Waits until the current tour step's target is on screen and outlined (or the step has no target).
+function tourStepShown(page) {
+  return page.waitForFunction(() => {
+    const st = window.__hbp.tourState();
+    if (st.i < 0) return false;
+    if (!st.sel) return true;
+    const el = document.querySelector(st.sel);
+    if (!el) return false;
+    const r = el.getBoundingClientRect(), sp = document.getElementById('tour-spot').getBoundingClientRect();
+    const overlap = sp.left < r.right && sp.right > r.left && sp.top < r.bottom && sp.bottom > r.top;
+    return r.top >= 0 && r.top < innerHeight && overlap;
+  }, null, { timeout: 3000 }).then(() => true, () => false);
+}
+
+section('tour', async () => {
+  const { ctx, page } = await openPage({});
+  check('first open offers the tour', await bannerHas(page, 'New here? Take a 2-minute tour'));
+  await page.click('[data-act="tour-later"]');
+  await page.reload({ waitUntil: 'networkidle' });
+  check('"Not now" stops the offer on this device', !(await page.locator('#banner').innerText()).includes('New here?'));
+
+  await page.click('#tour-btn');
+  check('the Tour button opens step 1 of 17', (await page.locator('#tour').isVisible()) && (await page.locator('#tour').innerText()).includes('1 of 17'));
+  const missed = [];
+  for (let i = 2; i <= 17; i++) {
+    await page.keyboard.press('ArrowRight');
+    if (!(await tourStepShown(page))) missed.push(i);
+  }
+  check('every step scrolls its part into view and outlines it', missed.length === 0, `steps not shown: ${missed.join(', ')}`);
+  check('the last step offers Finish', (await page.locator('#tour').innerText()).includes('Finish'));
+  await page.click('#tour [data-tour-act="next"]');
+  const after = await page.evaluate(() => ({ hidden: document.getElementById('tour').hidden, focus: document.activeElement.id }));
+  check('Finish closes the tour and returns focus to the Tour button', after.hidden && after.focus === 'tour-btn', JSON.stringify(after));
+
+  await page.click('#tour-btn');
+  for (let i = 0; i < 6; i++) await page.keyboard.press('Tab');
+  check('Tab stays inside the tour', await page.evaluate(() => document.getElementById('tour').contains(document.activeElement)));
+  await page.keyboard.press('Escape');
+  check('Escape closes the tour', await page.evaluate(() => document.getElementById('tour').hidden));
+  await ctx.close();
+
+  const ph = await openPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+  await ph.page.click('[data-act="tour-start"]');
+  let worst = 0;
+  for (let i = 2; i <= 17; i++) {
+    await ph.page.keyboard.press('ArrowRight');
+    await tourStepShown(ph.page);
+    if (i === 8 && SHOTS) await ph.page.screenshot({ path: path.join(SHOTS, 'phone-tour.png') });
+    worst = Math.max(worst, await ph.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth));
+  }
+  const w = await ph.page.evaluate(() => document.querySelector('#tour .tour-in').getBoundingClientRect().width);
+  check('on a phone the tour fits the screen', w <= 390 && worst <= 0, `caption ${w}px, overflow ${worst}px`);
+  await ph.ctx.close();
 });
 
 /* ---------------- runner ---------------- */
