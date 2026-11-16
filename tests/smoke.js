@@ -277,6 +277,59 @@ section('migration', async () => {
   await c.ctx.close();
 });
 
+// Honeydue limits table rows as { name, amt, text }.
+function hdRows(page) {
+  return page.evaluate(() => Array.from(document.querySelectorAll('table.hd tr')).filter((tr) => tr.querySelector('.hd-n'))
+    .map((tr) => ({ name: tr.querySelector('.hd-n').textContent.trim(), amt: tr.cells[tr.cells.length - 1].textContent.trim(), text: tr.textContent })));
+}
+const lineId = (page, name) => page.evaluate((n) => {
+  const s = window.__hbp.state(); const sc = s.scenarios.find((x) => x.id === s.active);
+  const l = sc.lines.find((x) => x.name === n); return l && l.id;
+}, name);
+const catId = (page, name) => page.evaluate((n) => { const c = window.__hbp.state().cats.find((x) => x.name === n); return c && c.id; }, name);
+
+section('categories', async () => {
+  const { ctx, page } = await openPage({});
+  let rows = await hdRows(page);
+  const bills = rows.find((r) => r.name === 'Bills & utilities');
+  check('Honeydue list has a Bills & utilities row of $360', !!bills && bills.amt === '$360 / mo', JSON.stringify(bills));
+
+  const billsId = await catId(page, 'Bills & utilities');
+  await page.click(`#cn-${billsId}`);
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('House bills');
+  const focus = await page.evaluate(() => ({ id: document.activeElement.id, value: document.activeElement.value }));
+  check('renaming a category keeps focus and every keystroke', focus.id === `cn-${billsId}` && focus.value === 'House bills', JSON.stringify(focus));
+  rows = await hdRows(page);
+  check('Honeydue row follows the new category name', rows.some((r) => r.name === 'House bills'));
+
+  const internet = await lineId(page, 'Internet');
+  await page.selectOption(`select[data-scope="line"][data-field="cat"][data-id="${internet}"]`, '');
+  rows = await hdRows(page);
+  const house = rows.find((r) => r.name === 'House bills');
+  const net = rows.find((r) => r.name === 'Internet');
+  check('a line taken out of a category gets its own limit', house && house.amt === '$300 / mo' && net && net.amt === '$60 / mo', JSON.stringify({ house, net }));
+  const text = await page.evaluate(() => window.__hbp.honeydueText());
+  check('copied list names the lines in each category',
+    text.includes('House bills: $300 per month (Utilities (electric, gas, water), Phone, Insurance (car, renters))'), text);
+
+  const groc = await catId(page, 'Groceries');
+  await page.click(`[data-act="del-cat"][data-id="${groc}"]`);
+  await page.click(`[data-act="del-cat"][data-id="${groc}"]`);
+  rows = await hdRows(page);
+  const offered = await page.evaluate(() => Array.from(document.querySelectorAll('select[data-field="cat"] option')).some((o) => o.textContent === 'Groceries'));
+  check('deleting a category (clicked twice) frees its lines',
+    rows.some((r) => r.name === 'Groceries & household supplies' && r.amt === '$600 / mo') && !offered, JSON.stringify(rows.map((r) => r.name)));
+  await ctx.close();
+
+  const phone = await openPage({ viewport: { width: 390, height: 844 } });
+  const firstCat = await phone.page.evaluate(() => window.__hbp.state().cats[0].id);
+  await phone.page.fill(`#cn-${firstCat}`, 'W'.repeat(60));
+  const overflow = await phone.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  check('a 60-character category name fits a 390px screen', overflow <= 0, `${overflow}px too wide`);
+  await phone.ctx.close();
+});
+
 /* ---------------- runner ---------------- */
 
 (async () => {

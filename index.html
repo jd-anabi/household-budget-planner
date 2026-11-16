@@ -257,6 +257,17 @@ input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-i
 .hd td.r { text-align: right; font-weight: 600; white-space: nowrap; padding-left: 10px; }
 .hd tr.gh td { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-3); padding-top: 12px; border-bottom: none; }
 .tag { font-size: 11px; color: var(--ink-3); display: block; }
+.hd td:first-child { overflow-wrap: anywhere; }
+.hd .hd-lines, .hd .hd-note { display: block; font-size: 11px; color: var(--ink-3); }
+.hd .hd-note { color: var(--warn); }
+.hd-after { margin-top: 8px; }
+
+.cat-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
+.cat-row .mo { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cat-lines { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.cat-line { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 220px); gap: 8px; align-items: center; font-size: 14px; }
+.cat-line label { overflow-wrap: anywhere; }
+.cat-line .faint { font-size: 12px; }
 textarea.copybox { width: 100%; min-height: 120px; font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink); background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
 
 .cmp-wrap { overflow-x: auto; }
@@ -286,6 +297,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   .row .rbar { display: none; }
   .guide { grid-template-columns: minmax(0, 1fr); }
   .stat b { font-size: 22px; }
+  .cat-line { grid-template-columns: minmax(0, 1fr) minmax(0, 48%); }
 }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
@@ -525,6 +537,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function newerBanner() { return { kind: 'error', html: '<b>' + esc(NEWER_MSG) + '</b>' }; }
   var banner = blocked ? newerBanner() : null;          // {kind:'import'|'error'|'info', ...}
   var pendingDelete = null;
+  var pendingDeleteCat = null;
   var pendingReset = false;
   var copyFallback = false;
 
@@ -548,6 +561,10 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   }
   function findLine(s, id) { for (var i = 0; i < s.lines.length; i++) if (s.lines[i].id === id) return s.lines[i]; return null; }
   function findInc(s, id) { for (var i = 0; i < s.incomes.length; i++) if (s.incomes[i].id === id) return s.incomes[i]; return null; }
+  function findCat(id) { for (var i = 0; i < state.cats.length; i++) if (state.cats[i].id === id) return state.cats[i]; return null; }
+  // '' when the line has no category or points at one that no longer exists.
+  function catName(id) { var ct = id ? findCat(id) : null; return ct ? (String(ct.name || '').trim() || 'Untitled category') : ''; }
+  function isSpend(l) { return l.g === 'need' || l.g === 'want'; }
 
   /* ---------- math ---------- */
   function n(v) { var x = parseFloat(v); return isFinite(x) && x > 0 ? x : 0; }
@@ -575,6 +592,31 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     info.date = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
     return info;
   }
+  var HD_NOTE = 'Enter these as monthly limits on your Honeydue categories. Group lines into categories in the Honeydue categories card. Savings stays out of Honeydue; the transfers above handle it.';
+  var YEARLY_NOTE = 'includes yearly costs at 1/12 a month; expect a spike in the month they’re paid';
+
+  // Honeydue limits: one item per category (sum of its lines) and per line not in a category.
+  function hdItems(s) {
+    var items = [], byCat = {};
+    state.cats.forEach(function (ct) {
+      var it = { kind: 'cat', id: ct.id, name: catName(ct.id), amt: 0, lines: [], note: '' };
+      byCat[ct.id] = it; items.push(it);
+    });
+    s.lines.forEach(function (l) {
+      if (!isSpend(l)) return;
+      var m = monthly(l), it = l.cat ? byCat[l.cat] : null;
+      if (!it) { items.push({ kind: 'line', id: l.id, name: l.name, amt: m, lines: [l], note: l.f === 'yr' ? YEARLY_NOTE : '' }); return; }
+      it.amt += m;
+      if (m >= 0.5) { it.lines.push(l); if (l.f === 'yr') it.note = YEARLY_NOTE; }
+    });
+    return items.filter(function (it) { return it.amt >= 0.5; }).sort(function (a, b) { return b.amt - a.amt; });
+  }
+  function catTotal(s, id) {
+    var t = 0;
+    s.lines.forEach(function (l) { if (isSpend(l) && l.cat === id) t += monthly(l); });
+    return t;
+  }
+
   function transfers(s, c) {
     var land = s.depositTo, items = [], moved = 0;
     ACCT_ORDER.forEach(function (a) {
@@ -719,6 +761,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       h += '</div><button class="btn ghost add" type="button" data-act="add-line" data-g="' + G.key + '">+ Add ' + (G.key === 'need' ? 'necessity' : G.key === 'save' ? 'savings item' : 'variable item') + '</button></section>';
     });
 
+    h += categoriesHTML(s);
+
     h += '<section class="card" aria-label="Account names"><div class="card-head"><h2>Accounts</h2><span class="meta">Rename to match your banks</span></div><div class="rows">';
     ACCT_ORDER.forEach(function (a) {
       var x = state.accounts[a] || { name: a, note: '' };
@@ -727,6 +771,42 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     });
     h += '</div></section>';
     return h;
+  }
+
+  function catOptions(sel) {
+    var found = !!(sel && findCat(sel));
+    return '<option value=""' + (found ? '' : ' selected') + '>Not in a category</option>' +
+      state.cats.map(function (ct) {
+        return '<option value="' + esc(ct.id) + '"' + (ct.id === sel ? ' selected' : '') + '>' + esc(catName(ct.id)) + '</option>';
+      }).join('');
+  }
+  function lineLabel(l) { return esc(l.name) + (l.f === 'yr' ? ' <span class="faint">yearly</span>' : ''); }
+
+  function categoriesHTML(s) {
+    var n = state.cats.length;
+    var h = '<section class="card" aria-label="Honeydue categories" data-tour="categories">' +
+      '<div class="card-head"><div><h2>Honeydue categories</h2>' +
+      '<p class="desc">Group your lines into the categories you use in Honeydue. Change them any time; the Honeydue limits update as you go.</p></div>' +
+      '<span class="meta">' + n + ' categor' + (n === 1 ? 'y' : 'ies') + '</span></div><div class="rows">';
+    state.cats.forEach(function (ct) {
+      var armed = pendingDeleteCat === ct.id;
+      h += '<div class="cat-row"><input class="in" id="cn-' + ct.id + '" data-scope="cat" data-id="' + ct.id + '" data-field="name" value="' + esc(ct.name) + '" aria-label="Category name">' +
+        '<span class="mo" data-out="ct-' + ct.id + '"></span>' +
+        (armed
+          ? '<button class="btn ghost danger" id="dc-' + ct.id + '" type="button" data-act="del-cat" data-id="' + ct.id + '">Click again to delete</button>'
+          : '<button class="icon" id="dc-' + ct.id + '" type="button" data-act="del-cat" data-id="' + ct.id + '" aria-label="Delete category ' + esc(catName(ct.id)) + '" title="Delete">×</button>') +
+        '</div>';
+    });
+    if (!n) h += '<p class="note">No categories yet. Add the ones you use in Honeydue.</p>';
+    h += '</div><button class="btn ghost add" type="button" data-act="add-cat">+ Add category</button>';
+    var lines = s.lines.filter(isSpend);
+    h += '<div class="cat-lines"><div class="rows-head" aria-hidden="true" style="display:grid;grid-template-columns:minmax(0,1fr) auto"><span>Line</span><span>Category</span></div>';
+    lines.forEach(function (l) {
+      h += '<div class="cat-line"><label for="lc-' + l.id + '" data-out="ln-' + l.id + '">' + lineLabel(l) + '</label>' +
+        '<select class="in" id="lc-' + l.id + '" data-scope="line" data-id="' + l.id + '" data-field="cat">' + catOptions(l.cat) + '</select></div>';
+    });
+    if (!lines.length) h += '<p class="note">Add necessities or variable lines to group them.</p>';
+    return h + '</div></section>';
   }
 
   function goalHTML(l) {
@@ -764,8 +844,10 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       setOut('gt-' + G.key, money(c.g[G.key]));
       setOut('gp-' + G.key, c.I > 0 ? pct(c.g[G.key] / c.I) + ' of income' : '');
     });
+    state.cats.forEach(function (ct) { setOut('ct-' + ct.id, money(catTotal(s, ct.id)) + ' / mo'); });
     s.lines.forEach(function (l) {
       var m = monthly(l);
+      if (isSpend(l)) setOut('ln-' + l.id, lineLabel(l));
       setOut('m-' + l.id, money(m) + (l.f !== 'mo' ? '<small>a month</small>' : ''));
       var b = root.querySelector('[data-out="b-' + l.id + '"]');
       if (b) b.style.width = (c.I > 0 ? Math.min(m / c.I * 100, 100) : 0) + '%';
@@ -865,19 +947,20 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     }
     h += '</section>';
 
-    var hd = s.lines.filter(function (l) { return l.g !== 'save' && monthly(l) >= 0.5; });
+    var items = hdItems(s);
     h += '<section class="card" aria-label="Honeydue category limits"><div class="card-head"><h2>Honeydue limits</h2>' +
       '<button class="btn" type="button" data-act="copy-hd">Copy list</button></div>' +
-      '<p class="note">Enter these as monthly spending limits on your Honeydue categories. Honeydue starts with 17 categories, so rename or combine lines to fit. Savings stays out of Honeydue; that’s handled by the transfers above.</p>' +
+      '<p class="note">' + esc(HD_NOTE) + '</p>' +
       '<table class="hd">';
-    ['need', 'want'].forEach(function (gk) {
-      var rows = hd.filter(function (l) { return l.g === gk; }).sort(function (a, b) { return monthly(b) - monthly(a); });
-      if (!rows.length) return;
-      h += '<tr class="gh"><td colspan="2">' + (gk === 'need' ? 'Necessities' : 'Variable') + '</td></tr>';
-      rows.forEach(function (l) {
-        h += '<tr><td>' + esc(l.name) + '<span class="tag">' + esc(acctName(l.acct)) + '</span></td><td class="r">' + money(monthly(l)) + ' / mo</td></tr>';
-      });
+    items.forEach(function (it) {
+      h += '<tr><td><span class="hd-n">' + esc(it.name) + '</span>' +
+        (it.kind === 'cat'
+          ? '<span class="hd-lines">' + esc(it.lines.map(function (l) { return l.name; }).join(', ')) + '</span>'
+          : '<span class="tag">' + esc(acctName(it.lines[0].acct)) + '</span>') +
+        (it.note ? '<span class="hd-note">' + esc(it.note) + '</span>' : '') +
+        '</td><td class="r">' + money(it.amt) + ' / mo</td></tr>';
     });
+    if (!items.length) h += '<tr><td colspan="2" class="note">No spending lines yet.</td></tr>';
     h += '</table>';
     if (copyFallback) h += '<label class="field" for="hd-copy">Select all and copy:<textarea class="copybox" id="hd-copy" readonly>' + esc(honeydueText(s)) + '</textarea></label>';
     h += '</section>';
@@ -964,16 +1047,13 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   }
 
   function honeydueText(s) {
-    var out = [];
-    ['need', 'want'].forEach(function (gk) {
-      var rows = s.lines.filter(function (l) { return l.g === gk && monthly(l) >= 0.5; }).sort(function (a, b) { return monthly(b) - monthly(a); });
-      if (!rows.length) return;
-      out.push(gk === 'need' ? 'NECESSITIES' : 'VARIABLE');
-      rows.forEach(function (l) { out.push(l.name + ': ' + money(monthly(l)) + ' per month'); });
-      out.push('');
+    var out = hdItems(s).map(function (it) {
+      return it.name + ': ' + money(it.amt) + ' per month' +
+        (it.kind === 'cat' && it.lines.length ? ' (' + it.lines.map(function (l) { return l.name; }).join(', ') + ')' : '');
     });
-    return (s.name ? 'Honeydue limits – ' + s.name + '\n\n' : '') + out.join('\n').trim();
+    return (s.name ? 'Honeydue limits – ' + s.name + '\n\n' : '') + out.join('\n');
   }
+
 
   function renderSaveStatus() {
     var el = document.getElementById('save-status'); if (!el) return;
@@ -1082,6 +1162,11 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     else if (sc === 'inc') { var x = findInc(s, id); if (!x) return; x[f] = isNum ? n(v) : v; }
     else if (sc === 'goal') { var lg = findLine(s, id); if (!lg) return; if (f === 'mode') return; lg.goal = lg.goal || newGoal(); lg.goal[f] = n(v); }
     else if (sc === 'scn') { if (f === 'depositTo') return; s[f] = v; }
+    else if (sc === 'cat') {
+      var ct = findCat(id); if (!ct) return;
+      ct.name = v;
+      root.querySelectorAll('select[data-field="cat"] option[value="' + id + '"]').forEach(function (o) { o.textContent = catName(id); });
+    }
     else if (sc === 'acct') {
       state.accounts[id] = state.accounts[id] || { name: id, note: '' };
       state.accounts[id][f] = v;
@@ -1116,6 +1201,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     var act = b.getAttribute('data-act'), s = scn();
     if (act !== 'del-scn') pendingDelete = null;
     if (act !== 'reset') pendingReset = false;
+    if (act !== 'del-cat') pendingDeleteCat = null;
     if (act === 'tab') { state.active = b.getAttribute('data-id'); copyFallback = false; persist(); renderAll(); return; }
     if (act === 'export') { exportPlan(); return; }
     if (act === 'import') { startImport(); return; }
@@ -1129,6 +1215,21 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       s.lines.splice(lastIdx + 1, 0, nl);
       changed(); rerenderEditor('n-' + nl.id);
       var ne = document.getElementById('n-' + nl.id); if (ne) ne.select();
+      return;
+    }
+    if (act === 'add-cat') {
+      var nc = { id: nid(), name: 'New category' };
+      state.cats.push(nc); changed(); rerenderEditor('cn-' + nc.id);
+      var ce = document.getElementById('cn-' + nc.id); if (ce) ce.select();
+      return;
+    }
+    if (act === 'del-cat') {
+      var did = b.getAttribute('data-id');
+      if (pendingDeleteCat === did) {
+        state.cats = state.cats.filter(function (x) { return x.id !== did; });
+        state.scenarios.forEach(function (sx) { sx.lines.forEach(function (l) { if (l.cat === did) l.cat = ''; }); });
+        pendingDeleteCat = null; changed(); rerenderEditor(null);
+      } else { pendingDeleteCat = did; rerenderEditor('dc-' + did); }
       return;
     }
     if (act === 'del-line') { var id = b.getAttribute('data-id'); s.lines = s.lines.filter(function (l) { return l.id !== id; }); changed(); rerenderEditor(null); return; }
@@ -1179,7 +1280,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   // Read-only hooks for tests/smoke.js (no data leaves the device).
   window.__hbp = {
     migrate: migrate, validPlan: validPlan, monthIndex: monthIndex, monthKey: monthKey,
-    thisMonth: thisMonth, prevMonth: prevMonth, state: function () { return state; }
+    thisMonth: thisMonth, prevMonth: prevMonth, state: function () { return state; },
+    honeydueText: function () { return honeydueText(scn()); }
   };
 
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
