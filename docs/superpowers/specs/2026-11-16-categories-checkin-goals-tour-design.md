@@ -1,6 +1,6 @@
 # Categories, monthly check-in, goal tracking and an in-app tour
 
-Status: draft for approval · 2026-11-16
+Status: approved 2026-11-16 (yearly costs added at approval)
 
 ## Why
 
@@ -14,6 +14,9 @@ month. Two gaps remain:
    and its note tells people to "rename or combine lines to fit" Honeydue's 17 categories.
    Combining lines throws away what the plan needs from each line: how often it is paid and
    which account pays it.
+3. **Yearly costs don't fit a monthly plan.** A yearly bill is planned at 1/12 a month, but
+   nothing sets that money aside, and it is paid in one lump. The money may be gone when the
+   bill arrives, and the bill's month looks like overspending.
 
 The couple using the app also want a guided tour so both of them can learn what each part of
 the app shows. The tour should explain the finished app, including everything below.
@@ -32,6 +35,9 @@ by a person. The design keeps that typing small: about one number per category p
   whether each goal is on track.
 - **Goal tracking:** each goal can optionally have a "by" month. A goal with a date is judged
   against the date; a goal without one is judged against the planned pace.
+- **Yearly costs:** each yearly cost can have a due month. Its monthly share is set aside in a
+  yearly-costs fund through the payday transfers. The app shows a 12-month calendar of what comes
+  due and whether the fund will cover it, and the check-in expects each bill in its due month.
 - **Tour:** a step-by-step tour of the finished app, offered once per device and replayable.
 
 ## Non-goals
@@ -39,8 +45,9 @@ by a person. The design keeps that typing small: about one number per category p
 - Bank connections, transaction entry, or anything per-transaction.
 - Reminders or notifications (there is no server; the check-in fits an existing routine such as payday).
 - Tracking actual income (planned income is used throughout).
-- Year-to-date views for yearly costs, interest projections, a calendar of yearly costs,
-  per-paycheck transfers (other ideas in CLAUDE.md, later).
+- Interest projections and per-paycheck transfers (other ideas in CLAUDE.md, later).
+- Yearly costs paid in several instalments (one due month per yearly line; split a cost into two
+  lines if needed).
 - A data-entry setup wizard. The tour explains; it does not collect numbers.
 - Merging two devices' edits. Sync stays "export, then import replaces".
 
@@ -101,6 +108,18 @@ by a person. The design keeps that typing small: about one number per category p
 2. A separate view or tab. Needs view switching, and the tour would have to cross views.
 3. A modal. Hides the plan while entering numbers, and adds focus-trap code beyond the tour's.
 
+**Yearly costs** (the user asked for something to deal with them and left the approach to the builder)
+
+1. **A yearly-costs fund (picked).** Each yearly cost gets an optional due month. Its 1/12 share
+   moves each payday into a fund account through the existing transfer plan. The app projects the
+   fund 12 months ahead and warns, with a top-up amount, if a bill would come due before enough is
+   saved. The check-in expects the full bill in its due month. This fixes both the cash problem and
+   the misleading month.
+2. Due months only. The check-in and the calendar become accurate, but nothing sets the money
+   aside, so the bill can still find the account empty.
+3. A dated savings goal per yearly bill. Works with the new goal dates, but counts each cost twice
+   (as spending and as saving) unless the spending line is removed, and every bill needs manual setup.
+
 ## Decided by the user
 
 - No bank connections, ever.
@@ -109,6 +128,8 @@ by a person. The design keeps that typing small: about one number per category p
 - Goals: a date is optional per goal; goals with a date are judged against it, goals without against the planned pace.
 - The tour is a tour of what the app shows (not a setup wizard), covers the finished app, and uses approach 1.
 - Ship to `main` (the live site) when done and tested, without waiting for another sign-off.
+- Yearly costs need handling; the approach (the fund above) was left to the builder.
+- The design was approved on 2026-11-16, with yearly costs added at approval.
 
 ## Design
 
@@ -120,26 +141,34 @@ New and changed fields only; everything in v1 stays as it is.
 state (v2) = v1 fields + {
   v: 2,
   cats: [{ id, name }],                // Honeydue categories, shared by all scenarios, in display order
-  checkins: [CheckIn]                  // sorted by month ascending; at most one per month
+  checkins: [CheckIn],                 // sorted by month ascending; at most one per month
+  fund: { acct, saved }                // yearly-costs fund. acct: '' (off) | 'jsav' | 'msav' | 'inv'
+                                       // saved: fund balance, used only while no check-in has fund data
 }
 need/want line: + cat: '' | catId      // '' = not in a category
+                + due: 0..12           // month a yearly line is paid (1 = Jan); 0 = spread through the year
+                                       // (kept but ignored while the line isn't yearly)
 savings line goal: + by: '' | 'YYYY-MM' // reach the target by the end of this month
 
 CheckIn = {
   month: 'YYYY-MM',
   scn: scenarioId, scnName,            // which scenario it was compared with (name snapshot)
   startedAt, by,                       // timestamp; device name from the sharing card, may be ''
-  spend: [{ key, name, planned, actual, yearly }],
+  spend: [{ key, name, planned, actual, note }],
       // key: catId | 'line:' + lineId (a line not in a category) | 'other'
-      // name, planned: snapshots taken when the check-in starts
+      // name, planned, note: snapshots taken when the check-in starts
       // actual: number, or null when not entered yet
-      // yearly: true if the row includes any yearly line (used for a note)
+      // note: '' or text about yearly costs in the row, e.g. "includes Car registration, $600, due this month"
   goals: [{ line, name, acct, target, planned, months, start, balance, assumed }]
       // line: goal line id; name/acct/target/planned: snapshots
       // months: how many months this check-in covers (see section 3)
       // start: the goal's balance before this check-in (fixed once the check-in exists)
       // balance: balance at the end of `month`
       // assumed: true while the balance is the plan-based pre-fill; false once a person edits it
+  fund: null | { acct, planned, due, months, start, balance, assumed }
+      // null when the fund is off. planned: monthly set-aside snapshot;
+      // due: total of dated yearly bills due in the months this check-in covers;
+      // months/start/balance/assumed: as for goals
 }
 ```
 
@@ -150,9 +179,10 @@ Naming of the storage key stays `household-budget-planner:plan:v1` (it is an add
 version; renaming it would mean moving data).
 
 **Migration v1 → v2** (one function, used on load and on import):
-`v = 2`, `cats = []`, `checkins = []`, every need/want line gets `cat: ''`, every goal gets
-`by: ''`. Unknown fields are kept. Migrated v1 plans therefore look exactly like today until
-the user creates categories.
+`v = 2`, `cats = []`, `checkins = []`, `fund = { acct: '', saved: 0 }` (off), every need/want
+line gets `cat: ''` and `due: 0`, every goal gets `by: ''`. Unknown fields are kept. Migrated v1
+plans therefore look and transfer exactly like today until the user creates categories or turns
+the fund on.
 
 **Safety:**
 - **Rollback guard, shipped first.** Today's app accepts only `v === 1`. Given a v2 plan, it shows
@@ -175,8 +205,10 @@ the user creates categories.
 **Example plan (`defaults()`):** add about six generic categories (for example "Bills &
 utilities", "Groceries", "Transportation", "Eating out & fun", "Personal", "Gifts") with the
 example lines assigned, so the categories card, Honeydue list and tour have something to show.
-Give the example move-in fund a "by" date 12 months after today (computed at creation). No
-example check-ins. The text stays generic.
+Give the example move-in fund a "by" date 12 months after today (computed at creation). Give the
+example yearly lines due months (car registration: March; gifts & holidays: December) and turn the
+fund on into Joint savings with $0 saved, so the yearly-costs card shows a realistic first-year
+shortfall. No example check-ins. The text stays generic.
 
 ### 2. Categories
 
@@ -200,7 +232,8 @@ them any time; the Honeydue limits update as you go.
 ```
 
 - Category names are text inputs (rename in place). Totals are the sum of `monthly(l)` over the
-  active scenario's need/want lines in that category.
+  active scenario's need/want lines in that category, counted the same way as the Honeydue list
+  (so yearly lines are left out while the fund is on).
 - "×" deletes a category with click-twice confirm; its lines become "Not in a category".
 - "+ Add category" appends "New category" and focuses its name.
 - The line list shows every need/want line of the active scenario (savings never have a
@@ -215,7 +248,12 @@ them any time; the Honeydue limits update as you go.
   into categories in the Honeydue categories card. Savings stays out of Honeydue; the transfers
   above handle it."
 - "Copy list" text: `Bills & utilities: $260 per month (Utilities, Internet, Phone)`, one per line.
-- A category containing a yearly line gets a small "includes yearly costs at 1/12 a month" note.
+- Yearly lines, fund on: left out of the limits (they are paid from the fund) and listed under
+  the table: "Paid from the yearly-costs fund: Car registration $600 (Mar), Gifts & holidays $800
+  (Dec). In those months Honeydue will show the category over its limit; that's expected."
+  Copy list adds the same sentence at the end.
+- Yearly lines, fund off: kept at 1/12 a month, with a note "includes yearly costs at 1/12 a month;
+  expect a spike in the month they're paid".
 
 "Copy this scenario" keeps each line's `cat`. Deleting a line needs no category clean-up.
 
@@ -239,7 +277,12 @@ any actuals whose `key` still exists):
 - `spend`: one row per category (even if planned $0), one row per need/want line not in a
   category with planned ≥ $0.50, and one final "Anything else" row (`key: 'other'`, planned $0)
   for spending in Honeydue categories that are not in the plan.
+  A row's planned amount for check-in month $M$ is the monthly amounts of its non-yearly lines,
+  plus, for each yearly line, its full amount if it is due in $M$, or $1/12$ of it if it has no
+  due month (a dated yearly line due in another month adds nothing). This holds whether or not the
+  fund is on. Rows with a yearly line get a `note`.
 - `goals`: one row per savings line with a goal (mode not 'none').
+- `fund`: when the fund is on, one row for the yearly-costs fund (section 5).
 - A "Use current plan amounts" link re-takes the planned snapshots for that check-in (actuals kept by key).
 
 ```
@@ -249,15 +292,16 @@ Enter each category's October total from Honeydue.
  Category              Planned   Actual        Difference
  Bills & utilities        $260   [   248 ]     $12 under
  Groceries                $600   [   655 ]     $55 over
- Gifts *                   $67   [     0 ]     $67 under
+ Transportation ¹         $750   [   742 ]     $8 under
  Anything else              $0   [    30 ]     $30 over
- Total (4 of 4 entered) $2,277     $2,190      $87 under plan
- * includes yearly costs at 1/12 a month; expect a spike in the month they're paid
+ Total (4 of 4 entered) $1,610     $1,675      $65 over plan
+ ¹ includes Car registration, $600, due this month
 
  Savings balances at the end of October
- Emergency fund    Joint savings   [ 1,400 ]   planned +$700   On track
- Move-in fund      Joint savings   [   800 ]   planned +$400   Needs $35/mo more to make Nov 2027
- Goals in Joint savings add up to $2,200. Check that this matches the account's balance.
+ Emergency fund     Joint savings  [ 1,400 ]  planned +$700         On track
+ Move-in fund       Joint savings  [   800 ]  planned +$400         Needs $35/mo more to make Nov 2027
+ Yearly costs fund  Joint savings  [   117 ]  planned +$117 − $0    Short $700 by Mar 2027
+ Joint savings holds $2,317 across these. Check that this matches the account's balance.
 
  Earlier months:  September · $40 over plan   August · on plan
 ```
@@ -284,8 +328,9 @@ Goal balances (one stored number per goal, so nothing can drift):
   It re-takes name/acct/target/planned, and recomputes `balance` only for rows still assumed.
 - Deleting a check-in needs no restore step: the current balance falls back to the previous
   check-in that includes the goal, or to `goal.saved`.
-- Under the goal rows, for each account holding two or more goals, show the sum of their balances
-  with "Check that this matches the account's balance." No input.
+- Under the goal rows, for each account holding two or more of the goals and the yearly-costs
+  fund, show the sum of their balances with "Check that this matches the account's balance."
+  No input.
 
 ### 4. Goal tracking
 
@@ -320,7 +365,69 @@ Let $s$ be the current planned monthly amount.
 Goal identity across check-ins is the line id. If the compared scenario changes, goals are matched
 to earlier check-ins by line id first, then by exact name.
 
-### 5. Tour
+### 5. Yearly costs
+
+**Editor column card "Yearly costs"**, placed after Honeydue categories:
+
+```
+Yearly costs                                              $117 / mo
+Set aside each month in [Joint savings ▾]     In the fund now [$     0 ]
+
+ Item                               Per year   Paid in
+ Car registration & maintenance        $600    [March                  ▾]
+ Gifts & holidays                      $800    [December               ▾]
+ To add one, add a line in Necessities or Variable and set How often to yearly.
+
+ Next 12 months                                               Fund after
+ Dec 2026  Gifts & holidays $800 · move it to Joint checking      −$567
+ Mar 2027  Car registration $600 · move it to Joint checking      −$817
+ Short $817 by Mar 2027. Put $817 in the fund now to cover every bill,
+ or expect to pay part of them from checking. (A new fund takes a year to build up.)
+```
+(Sketch values are for 16 Nov 2026: base month October 2026, $B = 0$, $c = 1400/12$.)
+
+- Lists every need/want line of the active scenario with `f === 'yr'`. "Paid in" is a select:
+  January to December, or "Spread through the year" (`due: 0`, e.g. car maintenance).
+- "Set aside each month in" is a select of the savings accounts plus "Don't set money aside"
+  (`fund.acct = ''`).
+- "In the fund now" shows the fund's current balance, under the same one-number rule as goals:
+  the `fund.balance` of the latest check-in with fund data, else `fund.saved`. Typing there edits
+  that check-in's balance (setting `assumed: false`), else `fund.saved`.
+- Monthly set-aside $c = \sum a_i / 12$ over the scenario's yearly lines (dated and spread), where
+  $a_i$ is the yearly amount.
+
+**Transfers (fund on):** in the transfer calculation, each yearly line's monthly share goes to
+`fund.acct` instead of its "Paid from" account. The step for that account reads
+"… + yearly costs fund $117". Group totals, the summary and 50/30/20 are unchanged: yearly lines
+stay necessities or variable spending. When a bill is due, it is paid from the line's "Paid from"
+account, so the calendar says "move it to <Paid from account>" for that month.
+
+**Projection (fund on):** base month $m$ and balance $B$ as for goals (latest check-in with fund
+data; otherwise the previous calendar month and `fund.saved`). For $k = 1..12$:
+$F_k = B + k\,c - \sum_{j=1}^{k} D(m + j)$, where $D$ of a month is the total of dated yearly
+amounts due in that calendar month. Shortfall $S = \max(0, -\min_k F_k)$.
+- $S = 0$: "Covered: the fund pays every yearly cost in the next 12 months." (`--ok`)
+- $S > 0$: "Short $\lceil S \rceil$ by <month of the minimum>. Put $\lceil S \rceil$ in the fund now
+  to cover every bill, or expect to pay part of them from checking." (`--warn`). Add "(A new fund
+  takes a year to build up.)" while no check-in has fund data.
+- The calendar lists each of the next 12 months that has a dated bill: month, bills, $F_k$
+  (negative values in `--warn`).
+- Spread-through-the-year lines have no scheduled draw; their share builds a buffer for irregular
+  costs. The card says so in one line when there are any.
+
+**Fund off:** the calendar still lists the next 12 months' bills (without balances), with the
+line "These are paid from checking when due. Choose an account above to set money aside each month."
+
+**Savings goals card (side column):** when the fund is on, its first row is "Yearly costs fund"
+with its balance and the status chip above.
+
+**Check-in (fund on):** one "Yearly costs fund" row in "Savings balances": `start` = current fund
+balance; `months` = months since the previous check-in with fund data, or 1; `planned` = $c$;
+`due` = total of dated bills due in the covered months; pre-filled
+`balance = start + planned × months − due`, `assumed: true`. Re-taking snapshots and deleting work
+as for goals.
+
+### 6. Tour
 
 **Entry points:**
 - First open on a device (no `household-budget-planner:tour-seen` in localStorage): an info banner
@@ -334,10 +441,10 @@ to earlier check-ins by line id first, then by exact name.
 - Steps follow the page's order. A step whose target is missing is skipped.
   1. Welcome (no target): the app plans the month; Honeydue tracks it.
   2. Scenarios tabs · 3. Summary · 4. Monthly check-in · 5. Income · 6. Necessities ·
-  7. Savings (goals, optional date) · 8. Variable · 9. Honeydue categories · 10. Accounts ·
-  11. Payday transfer plan · 12. Savings goals (status chips) · 13. Honeydue limits ·
-  14. Compare scenarios · 15. Sharing between devices
-  16. Finish (no target): "Replay any time with the Tour button."
+  7. Savings (goals, optional date) · 8. Variable · 9. Honeydue categories · 10. Yearly costs ·
+  11. Accounts · 12. Payday transfer plan · 13. Savings goals (status chips) ·
+  14. Honeydue limits · 15. Compare scenarios · 16. Sharing between devices
+  17. Finish (no target): "Replay any time with the Tour button."
   Each step's text says what the part shows and what to do with it, in two or three sentences.
 - Highlight: a fixed-position outline box over the target's bounding rectangle with a large
   box-shadow dimming the rest (`0 0 0 100vmax` in a dim token), updated on scroll and resize.
@@ -353,12 +460,12 @@ to earlier check-ins by line id first, then by exact name.
 - The tour never changes plan data and works on whatever plan is loaded.
 - New colours (dim layer, outline) are tokens with light and dark values.
 
-### 6. Copy changes
+### 7. Copy changes
 
 - Honeydue limits note (section 2).
 - Summary "Starting amounts are examples" note unchanged.
 - CLAUDE.md: data model v2, the backup key, the tour key, the check-in and categories cards; mark
-  feature ideas 1 and 3 as done; README features list gains categories, check-in and the tour.
+  feature ideas 1, 3 and 4 as done; README features list gains categories, check-in and the tour.
 
 ## Testing
 
@@ -380,6 +487,12 @@ Extend `tests/smoke.js` (keep it dependency-free):
   month and check its `start` equals the previous balance (no drift). Delete it and check the
   balance falls back.
 - Goal date: set a date that is unreachable at the planned amount and check the "Needs … more" chip.
+- Yearly costs: in the example plan (fund on, $0 saved, $600 due in March and $800 in December),
+  check the transfer step to Joint savings includes the fund's $117, the Honeydue list leaves the
+  two yearly lines out and names them in its note, and the shortfall equals the value computed in
+  the test from $F_k$ for today's date. Turn the fund off and check transfers and the Honeydue list
+  match today's app. In a check-in for a bill's due month, that row's planned amount includes the
+  full bill.
 - Tour: start from the Tour button, step to the end, check every step had a visible target or was a
   no-target step, close, focus returns to the Tour button; no console errors.
 - Existing checks (offline, widths, themes, export/import round trip) keep passing.
@@ -396,7 +509,10 @@ chips and the tour.
 - Savings balances in a check-in start as "assumed from plan"; you correct only what differs.
 - A goal's balance is shared by same-named goals across scenarios (it's the same money).
 - An "Anything else" row catches spending in Honeydue categories that aren't in the plan.
-- Yearly costs count at 1/12 a month, with a note to expect a spike when they're paid.
+- Yearly costs: each gets a due month; a yearly-costs fund sets aside the monthly share through
+  the payday transfers and warns, with a one-time top-up, if a bill would come before the fund has
+  enough. With the fund on, the Honeydue limits leave yearly costs out. The fund starts off for
+  existing plans (their transfers don't change until you turn it on) and on in the example plan.
 - The example plan gains example categories and a dated move-in goal.
 - A rollback guard ships first; a backup of the pre-update plan is kept on each device.
 
