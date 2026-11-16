@@ -1,6 +1,6 @@
 # Household Budget Planner
 
-A small installable web app (PWA) that J and their partner use to plan a monthly household budget:
+A small installable web app (PWA) for a couple to plan a monthly household budget together:
 split take-home pay into necessities, savings and variable spending, see the payday transfers
 between accounts, track savings goals, and compare scenarios ("Now" vs "Both working + rent").
 Live at https://jd-anabi.github.io/household-budget-planner/ (GitHub Pages, deployed from `main`, root).
@@ -74,7 +74,7 @@ Keep visible focus states and respect `prefers-reduced-motion`.
    If the data model changed, also import an older plan file and confirm the migration.
 4. Reload with the network off and confirm the app still opens.
 
-## Ideas J is considering
+## Feature ideas under consideration
 
 1. Monthly check-in: enter each category's actual total (from Honeydue) and compare with the plan.
 2. Savings projections with interest: B_t = B_0 (1+r)^t + s((1+r)^t − 1)/r at monthly rate r, charted per goal.
