@@ -555,6 +555,33 @@ section('first-checkin', async () => {
   await ctx.close();
 });
 
+section('import-safety', async () => {
+  const { ctx, page } = await openPage({});
+  const good = await page.evaluate(() => JSON.parse(JSON.stringify(window.__hbp.state())));
+  const variant = (fn) => { const st = JSON.parse(JSON.stringify(good)); fn(st); return st; };
+  const files = {
+    'check-in without spend rows': variant((st) => { st.checkins = [{ month: '2026-10', scn: 'now', scnName: 'Now', startedAt: 0, by: '', goals: [], fund: null }]; }),
+    'category id with markup': variant((st) => { st.cats[0].id = 'x"><img src=x onerror="window.__pwned=1">'; }),
+    'check-in month with markup': variant((st) => { st.checkins = [{ month: '2026-13"><b>', scn: 'now', scnName: 'Now', startedAt: 0, by: '', spend: [], goals: [], fund: null }]; }),
+  };
+  for (const [name, st] of Object.entries(files)) {
+    await page.reload({ waitUntil: 'networkidle' });
+    const f = path.join(TMP, 'bad.json');
+    fs.writeFileSync(f, JSON.stringify({ app: APP_ID, v: 2, exportedAt: new Date().toISOString(), exportedBy: '', state: st }));
+    await page.setInputFiles('#import-file', f);
+    const refused = await bannerHas(page, 'isn’t a budget plan file');
+    check(`a malformed file is refused (${name})`, refused && (await page.locator('[data-act="import-confirm"]').count()) === 0);
+  }
+  check('no script from a file runs', await page.evaluate(() => window.__pwned === undefined));
+  await ctx.close();
+
+  const broken = JSON.stringify(files['check-in without spend rows']);
+  const b = await openPage({ storage: { [PLAN_KEY]: broken } });
+  check('a stored plan the app cannot read is backed up before anything can overwrite it',
+    (await b.page.evaluate((k) => localStorage.getItem(k), BACKUP_KEY)) === broken);
+  await b.ctx.close();
+});
+
 /* ---------------- runner ---------------- */
 
 (async () => {

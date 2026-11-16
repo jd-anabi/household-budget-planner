@@ -547,9 +547,32 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     return !!(p && Array.isArray(p.scenarios) && p.scenarios.length && p.accounts &&
       p.scenarios.every(function (s) { return s && Array.isArray(s.lines) && Array.isArray(s.incomes); }));
   }
+  // Ids and months end up inside HTML attributes, so a plan (stored or imported) must use only safe ones,
+  // and every structure the app walks must be there; otherwise the plan is refused rather than half-loaded.
+  var ID_RE = /^[A-Za-z0-9_:-]{1,80}$/, MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+  function okId(x) { return typeof x === 'string' && ID_RE.test(x); }
+  function okObj(x) { return !!x && typeof x === 'object'; }
+  function validDeep(p) {
+    return p.scenarios.every(function (s) {
+      return okId(s.id) &&
+        s.incomes.every(function (x) { return okObj(x) && okId(x.id); }) &&
+        s.lines.every(function (l) {
+          return okObj(l) && okId(l.id) && (l.cat === undefined || l.cat === '' || okId(l.cat)) &&
+            (!l.goal || (okObj(l.goal) && (!l.goal.by || MONTH_RE.test(l.goal.by))));
+        });
+    }) &&
+      p.cats.every(function (ct) { return okObj(ct) && okId(ct.id); }) &&
+      p.checkins.every(function (ci) {
+        return okObj(ci) && MONTH_RE.test(ci.month) && Array.isArray(ci.spend) && Array.isArray(ci.goals) &&
+          ci.spend.every(function (r) { return okObj(r) && okId(r.key); }) &&
+          ci.goals.every(function (g) { return okObj(g) && okId(g.line); }) &&
+          (ci.fund === null || ci.fund === undefined || okObj(ci.fund));
+      }) &&
+      (p.fund.acct === '' || SAVE_ACCTS.indexOf(p.fund.acct) >= 0);
+  }
   function validPlan(p) {
     return validShape(p) && p.v === DATA_V && Array.isArray(p.cats) && Array.isArray(p.checkins) &&
-      !!p.fund && typeof p.fund === 'object';
+      okObj(p.fund) && validDeep(p);
   }
 
   // Upgrades a v1 plan to v2 (v2 passes through). Works on a copy, only adds missing fields,
@@ -594,6 +617,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       if (up) { if (!lsGet(BACKUP_KEY)) lsSet(BACKUP_KEY, rawStored); state = up; migratedOnLoad = true; }
     } else if (validPlan(stored)) state = stored;
   } catch (e) { state = null; }
+  // Something is stored but can't be read: keep a copy before anything can save over it.
+  if (!state && !blocked && rawStored && !lsGet(BACKUP_KEY)) lsSet(BACKUP_KEY, rawStored);
   if (!state) state = defaults();
   var deviceName = lsGet(NAME_KEY) || '';
   var savedAt = state.modifiedAt || 0;
