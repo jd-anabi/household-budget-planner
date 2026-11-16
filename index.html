@@ -264,6 +264,16 @@ input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-i
 .hd .hd-lines, .hd .hd-note { display: block; font-size: 11px; color: var(--ink-3); }
 .hd .hd-note { color: var(--warn); }
 .hd-after { margin-top: 8px; }
+.hd td.r.neg { color: var(--warn); }
+.yr-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px minmax(0, 190px); gap: 8px; align-items: center; font-size: 14px; }
+.yr-row label { overflow-wrap: anywhere; }
+.yr-row .r { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.yr-head { font-size: 12px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.04em; }
+.yr-rows { margin-top: 12px; }
+.fund-tbl { margin-top: 12px; }
+.fund-st { font-size: 13px; font-weight: 600; padding: 8px 10px; border-radius: 8px; margin-top: 10px; }
+.fund-st.ok { background: var(--ok-bg); color: var(--ok); }
+.fund-st.warn { background: var(--warn-bg); color: var(--warn); }
 
 .cat-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
 .cat-row .mo { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -324,6 +334,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   .stat b { font-size: 22px; }
   .cat-line { grid-template-columns: minmax(0, 1fr) minmax(0, 48%); }
   .ci-head { display: none; }
+  .yr-head { display: none; }
+  .yr-row { grid-template-columns: minmax(0, 1fr) 80px; }
+  .yr-row select { grid-column: 1 / -1; }
   .ci-row { grid-template-columns: minmax(0, 1fr) 120px; grid-template-areas: "n a" "p d"; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
   .ci-row > .ci-n { grid-area: n; } .ci-row > .ci-a { grid-area: a; }
   .ci-row > .ci-p { grid-area: p; text-align: left; font-size: 12px; color: var(--ink-2); } .ci-row > .ci-d { grid-area: d; }
@@ -599,6 +612,10 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   // '' when the line has no category or points at one that no longer exists.
   function catName(id) { var ct = id ? findCat(id) : null; return ct ? (String(ct.name || '').trim() || 'Untitled category') : ''; }
   function isSpend(l) { return l.g === 'need' || l.g === 'want'; }
+  function isYearly(l) { return isSpend(l) && l.f === 'yr'; }
+  function fundOn() { return !!(state.fund && state.fund.acct); }
+  function dueOf(l) { var d = parseInt(l.due, 10); return d >= 1 && d <= 12 ? d : 0; }
+  function monthNum(key) { return ((monthIndex(key) % 12) + 12) % 12 + 1; }
 
   /* ---------- math ---------- */
   function n(v) { var x = parseFloat(v); return isFinite(x) && x > 0 ? x : 0; }
@@ -606,9 +623,17 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function calc(s) {
     var I = 0, g = { need: 0, save: 0, want: 0 }, by = {};
     s.incomes.forEach(function (x) { I += n(x.amt); });
-    s.lines.forEach(function (l) { var m = monthly(l); if (g[l.g] === undefined) return; g[l.g] += m; by[l.acct] = (by[l.acct] || 0) + m; });
+    var fund = 0, toFund = fundOn();
+    s.lines.forEach(function (l) {
+      var m = monthly(l); if (g[l.g] === undefined) return;
+      g[l.g] += m;
+      // With the yearly-costs fund on, a yearly line's monthly share is moved to the fund each payday.
+      var a = toFund && isYearly(l) ? state.fund.acct : l.acct;
+      if (toFund && isYearly(l)) fund += m;
+      by[a] = (by[a] || 0) + m;
+    });
     var P = g.need + g.save + g.want;
-    return { I: I, g: g, P: P, left: I - P, by: by, rate: I > 0 ? g.save / I : 0 };
+    return { I: I, g: g, P: P, left: I - P, by: by, fund: fund, rate: I > 0 ? g.save / I : 0 };
   }
   function goalTarget(l, c) {
     if (!l.goal || l.goal.mode === 'none') return 0;
@@ -622,8 +647,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (B >= G) { info.done = true; return info; }
     if (s <= 0) { info.never = true; return info; }
     info.months = Math.ceil((G - B) / s);
-    var d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + info.months);
-    info.date = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    // Count from the same base month as the goal status: the latest check-in, else the end of last month.
+    var e = latestGoalEntry(l);
+    info.date = monthLabel(monthKey(monthIndex(e ? e.ci.month : prevMonth(new Date())) + info.months));
     return info;
   }
   var HD_NOTE = 'Enter these as monthly limits on your Honeydue categories. Group lines into categories in the Honeydue categories card. Savings stays out of Honeydue; the transfers above handle it.';
@@ -637,7 +663,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       byCat[ct.id] = it; items.push(it);
     });
     s.lines.forEach(function (l) {
-      if (!isSpend(l)) return;
+      if (!isSpend(l) || (fundOn() && isYearly(l))) return;
       var m = monthly(l), it = l.cat ? byCat[l.cat] : null;
       if (!it) { items.push({ kind: 'line', id: l.id, name: l.name, amt: m, lines: [l], note: l.f === 'yr' ? YEARLY_NOTE : '' }); return; }
       it.amt += m;
@@ -647,8 +673,70 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   }
   function catTotal(s, id) {
     var t = 0;
-    s.lines.forEach(function (l) { if (isSpend(l) && l.cat === id) t += monthly(l); });
+    s.lines.forEach(function (l) { if (isSpend(l) && l.cat === id && !(fundOn() && isYearly(l))) t += monthly(l); });
     return t;
+  }
+
+  /* ---------- yearly costs fund ---------- */
+  function fundMonthly(s) { var c = 0; s.lines.forEach(function (l) { if (isYearly(l)) c += n(l.amt) / 12; }); return c; }
+  function fundBills(s) {
+    return s.lines.filter(function (l) { return isYearly(l) && dueOf(l); })
+      .map(function (l) { return { name: l.name, amt: n(l.amt), due: dueOf(l), acct: l.acct }; });
+  }
+  // F_k = B + k c − Σ bills due in months m+1..m+k, for k = 1..12; S = max(0, −min F_k).
+  function projectFund(B, base, c, bills) {
+    var F = B, min = 0, minKey = '', months = [], b0 = monthIndex(base);
+    for (var k = 1; k <= 12; k++) {
+      var key = monthKey(b0 + k), mo = monthNum(key), D = 0, due = [];
+      bills.forEach(function (b) { if (b.due === mo) { D += b.amt; due.push({ name: b.name, amt: b.amt, acct: b.acct }); } });
+      F = F + c - D;
+      if (due.length) months.push({ key: key, bills: due, F: F });
+      if (F < min - 1e-9) { min = F; minKey = key; }
+    }
+    return { months: months, S: Math.max(0, -min), minKey: min < 0 ? minKey : '' };
+  }
+  function latestFundEntry(before) {
+    for (var i = state.checkins.length - 1; i >= 0; i--) {
+      var ci = state.checkins[i];
+      if (before && monthIndex(ci.month) >= monthIndex(before)) continue;
+      if (ci.fund) return ci;
+    }
+    return null;
+  }
+  // Same one-number rule as goals: the latest check-in's fund balance, else fund.saved.
+  function fundBalance() { var ci = latestFundEntry(); return ci ? { balance: n(ci.fund.balance), month: ci.month, assumed: !!ci.fund.assumed } : { balance: n(state.fund.saved), month: '', assumed: false }; }
+  function setFundBalance(v) { var ci = latestFundEntry(); if (ci) { ci.fund.balance = v; ci.fund.assumed = false; } else { state.fund.saved = v; } }
+  function fundProjection(s) {
+    var fb = fundBalance();
+    return projectFund(fb.balance, fb.month || prevMonth(new Date()), fundMonthly(s), fundBills(s));
+  }
+  function fundStatus(s) {
+    var p = fundProjection(s), fb = fundBalance(), st;
+    if (p.S <= 0.5) st = { tone: 'ok', text: 'Covered', sub: 'Covered: the fund pays every yearly cost in the next 12 months.' };
+    else st = { tone: 'warn', text: 'Short ' + money(Math.ceil(p.S)) + ' by ' + monthLabel(p.minKey),
+      sub: 'Short ' + money(Math.ceil(p.S)) + ' by ' + monthLabel(p.minKey) + '. Put ' + money(Math.ceil(p.S)) +
+        ' in the fund now to cover every bill, or expect to pay part of them from checking.' + (latestFundEntry() ? '' : ' (A new fund takes a year to build up.)') };
+    if (fb.assumed) st.text += ' (assumed)';
+    return st;
+  }
+  function fundRow(month, s) {
+    var prev = latestFundEntry(month);
+    var start = prev ? n(prev.fund.balance) : n(state.fund.saved);
+    var months = prev ? Math.max(monthIndex(month) - monthIndex(prev.month), 1) : 1;
+    var c = fundMonthly(s), bills = fundBills(s), due = 0;
+    for (var k = 0; k < months; k++) {
+      var mo = monthNum(monthKey(monthIndex(month) - k));
+      bills.forEach(function (b) { if (b.due === mo) due += b.amt; });
+    }
+    return { acct: state.fund.acct, planned: c, due: due, months: months, start: start, balance: Math.round(start + c * months - due), assumed: true };
+  }
+  function fundSentence(s) {
+    if (!fundOn()) return '';
+    var ys = s.lines.filter(isYearly).filter(function (l) { return n(l.amt) >= 0.5; });
+    if (!ys.length) return '';
+    return 'Paid from the yearly-costs fund: ' + ys.map(function (l) {
+      return l.name + ' ' + money(n(l.amt)) + ' (' + (dueOf(l) ? MONTHS[dueOf(l) - 1].slice(0, 3) : 'spread') + ')';
+    }).join(', ') + '. In those months Honeydue will show the category over its limit; that’s expected.';
   }
 
   /* ---------- check-ins ---------- */
@@ -658,15 +746,25 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function latestCheckin() { return state.checkins.length ? state.checkins[state.checkins.length - 1] : null; }
   function goalLines(s) { return s.lines.filter(function (l) { return l.g === 'save' && l.goal && l.goal.mode !== 'none'; }); }
 
+  // A dated yearly line is planned in full in its due month and not at all in others; spread ones at 1/12.
+  function plannedIn(l, month) {
+    if (!isYearly(l) || !dueOf(l)) return monthly(l);
+    return monthNum(month) === dueOf(l) ? n(l.amt) : 0;
+  }
+  function yearlyNote(l, month) {
+    if (!isYearly(l) || n(l.amt) < 0.5) return '';
+    if (!dueOf(l)) return 'includes irregular yearly costs at 1/12 a month';
+    return monthNum(month) === dueOf(l) ? 'includes ' + l.name + ', ' + money(n(l.amt)) + ', due this month' : '';
+  }
   // Planned spending for a check-in month: one row per category, per line not in a category, then "Anything else".
   function spendRows(s, month) {
     var rows = [], byCat = {};
     state.cats.forEach(function (ct) { var r = { key: ct.id, name: catName(ct.id), planned: 0, note: '' }; byCat[ct.id] = r; rows.push(r); });
     s.lines.forEach(function (l) {
       if (!isSpend(l)) return;
-      var m = monthly(l), r = l.cat ? byCat[l.cat] : null;
-      if (r) { r.planned += m; if (l.f === 'yr' && m >= 0.5) r.note = YEARLY_NOTE; }
-      else if (m >= 0.5) rows.push({ key: 'line:' + l.id, name: l.name, planned: m, note: l.f === 'yr' ? YEARLY_NOTE : '' });
+      var m = plannedIn(l, month), r = l.cat ? byCat[l.cat] : null, note = yearlyNote(l, month);
+      if (r) { r.planned += m; if (note) r.note = r.note ? r.note + '; ' + note : note; }
+      else if (m >= 0.5) rows.push({ key: 'line:' + l.id, name: l.name, planned: m, note: note });
     });
     rows.push({ key: 'other', name: 'Anything else', planned: 0, note: '' });
     return rows;
@@ -703,7 +801,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     var months = prev ? Math.max(monthIndex(month) - monthIndex(prev.ci.month), 1) : 1;
     var planned = monthly(l);
     return { line: l.id, name: l.name, acct: l.acct, target: goalTarget(l, c), planned: planned, months: months,
-      start: start, balance: round2(start + planned * months), assumed: true };
+      start: start, balance: Math.round(start + planned * months), assumed: true };
   }
 
   /* ---------- goal status ---------- */
@@ -728,7 +826,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (G <= 0) return null;
     var e = latestGoalEntry(l), B = goalBalance(l), st;
     if (B >= G - 0.5) st = { tone: 'ok', text: 'Reached', sub: '' };
-    else if (l.goal.by) st = dateStatus(G, B, monthly(l), e ? e.ci.month : prevMonth(new Date()), l.goal.by);
+    else if (l.goal.by) { st = dateStatus(G, B, monthly(l), e ? e.ci.month : prevMonth(new Date()), l.goal.by); st.pace = st.sub; st.sub = ''; }
     else if (e) {
       var E = null;
       state.checkins.forEach(function (ci) {
@@ -759,7 +857,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     var ci = { month: month, scn: s.id, scnName: s.name || 'Untitled', startedAt: Date.now(), by: deviceName,
       spend: spendRows(s, month).map(function (r) { return { key: r.key, name: r.name, planned: r.planned, actual: null, note: r.note }; }),
       goals: goalLines(s).map(function (l) { return goalRow(l, month, c); }),
-      fund: null };
+      fund: fundOn() ? fundRow(month, s) : null };
     state.checkins.push(ci);
     state.checkins.sort(function (a, b) { return monthIndex(a.month) - monthIndex(b.month); });
     return ci;
@@ -780,9 +878,17 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       kept.forEach(function (r) { if (!row && r.name === l.name) row = r; });
       if (!row) return goalRow(l, ci.month, c);
       row.line = l.id; row.name = l.name; row.acct = l.acct; row.target = goalTarget(l, c); row.planned = monthly(l);
-      if (row.assumed) row.balance = round2(n(row.start) + row.planned * row.months);
+      if (row.assumed) row.balance = Math.round(n(row.start) + row.planned * row.months);
       return row;
     });
+    if (fundOn()) {
+      if (!ci.fund) ci.fund = fundRow(ci.month, s);
+      else {
+        var fr = fundRow(ci.month, s);
+        ci.fund.acct = fr.acct; ci.fund.planned = fr.planned; ci.fund.due = fr.due;
+        if (ci.fund.assumed) ci.fund.balance = Math.round(n(ci.fund.start) + fr.planned * (ci.fund.months || 1) - fr.due);
+      }
+    }
   }
 
   function checkinTotals(ci) {
@@ -946,6 +1052,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     });
 
     h += categoriesHTML(s);
+    h += yearlyHTML(s);
 
     h += '<section class="card" aria-label="Account names"><div class="card-head"><h2>Accounts</h2><span class="meta">Rename to match your banks</span></div><div class="rows">';
     ACCT_ORDER.forEach(function (a) {
@@ -1002,17 +1109,69 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
         '<span class="ci-d r" data-out="cid-' + esc(r.key) + '"></span></div>';
     });
     h += '<div class="ci-row ci-total"><span class="ci-n" data-out="ci-total"></span><span class="ci-p r" data-out="ci-tp"></span><span class="ci-a r" data-out="ci-ta"></span><span class="ci-d r" data-out="ci-td"></span></div></div>';
-    if (ci.goals.length) {
+    if (ci.goals.length || ci.fund) {
       h += '<h3 class="ci-sub">Savings balances at the end of ' + esc(monthLong(ci.month)) + '</h3><div class="ci-goals">';
       ci.goals.forEach(function (g) {
         h += '<div class="ci-goal"><span class="ci-n">' + esc(g.name) + '<span class="tag">' + esc(acctName(g.acct)) + '</span></span>' +
           '<span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="cig-' + esc(g.line) + '" data-scope="cig" data-field="balance" data-id="' + esc(g.line) + '" value="' + esc(round2(n(g.balance))) + '" aria-label="' + esc(g.name) + ' balance at the end of ' + esc(monthLong(ci.month)) + '"></span>' +
           '<span class="ci-meta"><span>planned +' + money(n(g.planned) * (g.months || 1)) + '</span><span class="ci-assumed" data-out="cias-' + esc(g.line) + '"></span><span data-out="cigs-' + esc(g.line) + '"></span></span></div>';
       });
+      if (ci.fund) {
+        var f = ci.fund;
+        h += '<div class="ci-goal"><span class="ci-n">Yearly costs fund<span class="tag">' + esc(acctName(f.acct)) + '</span></span>' +
+          '<span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="cif" data-scope="cif" data-field="balance" value="' + esc(round2(n(f.balance))) + '" aria-label="Yearly costs fund balance at the end of ' + esc(monthLong(ci.month)) + '"></span>' +
+          '<span class="ci-meta"><span>planned +' + money(n(f.planned) * (f.months || 1)) + ' − ' + money(n(f.due)) + ' due</span><span class="ci-assumed" data-out="cias-fund"></span><span data-out="cigs-fund"></span></span></div>';
+      }
       h += '</div><p class="note" data-out="ci-recon"></p>';
     }
     h += '<div class="ci-foot"><span></span><button class="btn ghost danger" type="button" data-act="ci-del" data-id="' + ci.month + '">' +
       (pendingCiDel === ci.month ? 'Click again to delete this check-in' : 'Delete this check-in') + '</button></div>';
+    return h;
+  }
+
+  function yearlyHTML(s) {
+    var ys = s.lines.filter(isYearly);
+    var h = '<section class="card" aria-label="Yearly costs" data-tour="yearly"><div class="card-head"><div><h2>Yearly costs</h2>' +
+      '<p class="desc">Bills that come once a year. Setting aside a twelfth each month means the money is there when they’re due.</p></div>' +
+      '<div style="text-align:right"><div class="total" data-out="fund-c"></div><div class="meta">set aside a month</div></div></div>' +
+      '<div class="fields"><label class="field" for="fund-acct">Set aside each month in<select class="in" id="fund-acct" data-scope="fund" data-field="acct">' +
+      '<option value=""' + (fundOn() ? '' : ' selected') + '>Don’t set money aside</option>' + optionList(SAVE_ACCTS, state.fund.acct) + '</select></label>' +
+      (fundOn() ? '<label class="field" for="fund-bal">In the fund now<span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="fund-bal" data-scope="fund" data-field="balance" value="' + esc(round2(fundBalance().balance)) + '"></span></label>' : '') +
+      '</div>';
+    if (ys.length) {
+      h += '<div class="rows yr-rows"><div class="yr-row yr-head" aria-hidden="true"><span>Item</span><span class="r">Per year</span><span>Paid in</span></div>';
+      ys.forEach(function (l) {
+        h += '<div class="yr-row"><label for="yd-' + l.id + '" data-out="yn-' + l.id + '">' + esc(l.name) + '</label><span class="r" data-out="ya-' + l.id + '"></span>' +
+          '<select class="in" id="yd-' + l.id + '" data-scope="line" data-id="' + l.id + '" data-field="due">' +
+          '<option value="0"' + (dueOf(l) ? '' : ' selected') + '>Spread through the year</option>' +
+          MONTHS.map(function (mn, i) { return '<option value="' + (i + 1) + '"' + (dueOf(l) === i + 1 ? ' selected' : '') + '>' + mn + '</option>'; }).join('') +
+          '</select></div>';
+      });
+      h += '</div>';
+    }
+    h += '<p class="note">' + (ys.length ? '' : 'No yearly items yet. ') + 'To add one, add a line in Necessities or Variable and set How often to yearly.</p>';
+    return h + '<div data-out="fund-cal"></div></section>';
+  }
+  function fundCalHTML(s) {
+    var ys = s.lines.filter(isYearly), bills = fundBills(s);
+    if (!ys.length) return '';
+    var p = fundOn() ? fundProjection(s) : projectFund(0, prevMonth(new Date()), 0, bills), h = '';
+    if (p.months.length) {
+      h += '<table class="hd fund-tbl"><tr class="gh"><td>Next 12 months</td><td class="r">' + (fundOn() ? 'Fund after' : '') + '</td></tr>';
+      p.months.forEach(function (m) {
+        h += '<tr><td><b>' + esc(monthLabel(m.key)) + '</b> ' + m.bills.map(function (b) {
+          return esc(b.name) + ' ' + money(b.amt) + (fundOn() ? ' · move it to ' + esc(acctName(b.acct)) : '');
+        }).join('; ') + '</td><td class="r' + (fundOn() && m.F < -0.5 ? ' neg' : '') + '">' + (fundOn() ? money(m.F) : '') + '</td></tr>';
+      });
+      h += '</table>';
+    }
+    if (fundOn()) {
+      var st = fundStatus(s);
+      h += '<p class="fund-st ' + st.tone + '">' + esc(st.sub) + '</p>';
+    } else {
+      h += '<p class="note">These are paid from checking when due. Choose an account above to set money aside each month.</p>';
+    }
+    if (ys.some(function (l) { return !dueOf(l); })) h += '<p class="note">Items spread through the year have no set month; their share builds a buffer for irregular costs.</p>';
     return h;
   }
 
@@ -1101,6 +1260,11 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     });
     state.cats.forEach(function (ct) { setOut('ct-' + ct.id, money(catTotal(s, ct.id)) + ' / mo'); });
     refreshCheckin();
+    setOut('fund-c', money(fundMonthly(s)));
+    s.lines.forEach(function (l) { if (isYearly(l)) { setOut('yn-' + l.id, esc(l.name)); setOut('ya-' + l.id, money(n(l.amt))); } });
+    setOut('fund-cal', fundCalHTML(s));
+    var fbi = document.getElementById('fund-bal');
+    if (fbi && document.activeElement !== fbi && n(fbi.value) !== round2(fundBalance().balance)) fbi.value = round2(fundBalance().balance);
     s.lines.forEach(function (l) {
       var m = monthly(l);
       if (isSpend(l)) setOut('ln-' + l.id, lineLabel(l));
@@ -1146,6 +1310,14 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       byAcct[g.acct] = byAcct[g.acct] || { sum: 0, k: 0 };
       byAcct[g.acct].sum += n(g.balance); byAcct[g.acct].k += 1;
     });
+    if (ci.fund) {
+      setOut('cias-fund', ci.fund.assumed ? 'assumed from plan' : '');
+      var fe = document.getElementById('cif');
+      if (fe && document.activeElement !== fe && n(fe.value) !== round2(n(ci.fund.balance))) fe.value = round2(n(ci.fund.balance));
+      setOut('cigs-fund', ci === latestCheckin() && fundOn() ? statusChip(fundStatus(findScn(ci.scn) || scn())) : '');
+      byAcct[ci.fund.acct] = byAcct[ci.fund.acct] || { sum: 0, k: 0 };
+      byAcct[ci.fund.acct].sum += n(ci.fund.balance); byAcct[ci.fund.acct].k += 1;
+    }
     setOut('ci-recon', Object.keys(byAcct).filter(function (a) { return byAcct[a].k > 1; }).map(function (a) {
       return esc(acctName(a)) + ' holds ' + money(byAcct[a].sum) + ' across these. Check that this matches the account’s balance.';
     }).join(' '));
@@ -1218,6 +1390,12 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
     var goals = s.lines.filter(function (l) { return l.g === 'save' && goalInfo(l, c); });
     h += '<section class="card" aria-label="Savings goals"><div class="card-head"><h2>Savings goals</h2></div>';
+    if (fundOn()) {
+      var fst = fundStatus(s), nY = s.lines.filter(isYearly).length;
+      h += '<div class="goals" style="margin-bottom:14px"><div class="gl" data-goal="fund"><div class="gl-top"><span>Yearly costs fund<span class="tag">' + esc(acctName(state.fund.acct)) + '</span></span>' +
+        '<span><b>' + money(fundBalance().balance) + '</b></span></div><div class="gl-st">' + statusChip(fst) + '</div>' +
+        '<div class="gl-sub">' + money(c.fund) + ' a month for ' + nY + ' yearly item' + (nY === 1 ? '' : 's') + '.</div></div></div>';
+    }
     if (!goals.length) {
       h += '<p class="note">Add a goal to any savings item to see when you’ll reach it.</p>';
     } else {
@@ -1252,7 +1430,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
         '</td><td class="r">' + money(it.amt) + ' / mo</td></tr>';
     });
     if (!items.length) h += '<tr><td colspan="2" class="note">No spending lines yet.</td></tr>';
+    var fs = fundSentence(s);
     h += '</table>';
+    if (fs) h += '<p class="note hd-after">' + esc(fs) + '</p>';
     if (copyFallback) h += '<label class="field" for="hd-copy">Select all and copy:<textarea class="copybox" id="hd-copy" readonly>' + esc(honeydueText(s)) + '</textarea></label>';
     h += '</section>';
 
@@ -1322,9 +1502,10 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     t.items.forEach(function (x) {
       var parts = [];
       GROUPS.forEach(function (G) {
-        var v = 0; s.lines.forEach(function (l) { if (l.acct === x.a && l.g === G.key) v += monthly(l); });
+        var v = 0; s.lines.forEach(function (l) { if (l.acct === x.a && l.g === G.key && !(fundOn() && isYearly(l))) v += monthly(l); });
         if (v > 0.5) parts.push(G.name.toLowerCase() + ' ' + money(v));
       });
+      if (fundOn() && x.a === state.fund.acct && c.fund > 0.5) parts.push('yearly costs fund ' + money(c.fund));
       h += '<li><span>Move to <b>' + esc(acctName(x.a)) + '</b></span><b>' + money(x.amt) + '</b><span class="why">' + esc(parts.join(' + ')) + '</span></li>';
     });
     var unassigned = Math.max(t.keep - t.keepPlanned, 0);
@@ -1342,7 +1523,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       return it.name + ': ' + money(it.amt) + ' per month' +
         (it.kind === 'cat' && it.lines.length ? ' (' + it.lines.map(function (l) { return l.name; }).join(', ') + ')' : '');
     });
-    return (s.name ? 'Honeydue limits – ' + s.name + '\n\n' : '') + out.join('\n');
+    var fs = fundSentence(s);
+    return (s.name ? 'Honeydue limits – ' + s.name + '\n\n' : '') + out.join('\n') + (fs ? '\n\n' + fs : '');
   }
 
 
@@ -1449,9 +1631,16 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     var s = scn(), id = t.getAttribute('data-id'), f = t.getAttribute('data-field'), v = t.value;
     var isNum = t.type === 'number';
     if (sc === 'device') { deviceName = v; lsSet(NAME_KEY, v); return; }
-    if (sc === 'ci' || sc === 'cig') {
+    if (sc === 'fund') {
+      if (t.tagName === 'SELECT' || f !== 'balance') return;
+      setFundBalance(n(v)); changed(); refresh();
+      return;
+    }
+    if (sc === 'ci' || sc === 'cig' || sc === 'cif') {
       var shown = ciShown ? findCheckin(ciShown) : null; if (!shown || t.tagName === 'SELECT') return;
-      if (sc === 'ci') {
+      if (sc === 'cif') {
+        if (shown.fund) { shown.fund.balance = n(v); shown.fund.assumed = false; }
+      } else if (sc === 'ci') {
         shown.spend.forEach(function (r) { if (r.key === id) r.actual = String(v).trim() === '' ? null : n(v); });
       } else {
         shown.goals.forEach(function (g) { if (g.line === id) { g.balance = n(v); g.assumed = false; } });
@@ -1485,7 +1674,13 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       if (cs) { retakeCheckin(cs, v); changed(); rerenderEditor('ci-scn'); }
       return;
     }
-    if (sc === 'line') { var l = findLine(s, id); if (l) l[f] = v; changed(); refresh(); }
+    if (sc === 'fund' && f === 'acct') { state.fund.acct = v; changed(); rerenderEditor('fund-acct'); return; }
+    if (sc === 'line') {
+      var l = findLine(s, id); if (!l) return;
+      if (f === 'due') l.due = parseInt(v, 10) || 0; else l[f] = v;
+      changed();
+      if (f === 'f') rerenderEditor('f-' + id); else refresh();
+    }
     else if (sc === 'scn') { s[f] = v; changed(); refresh(); }
     else if (sc === 'goal') {
       var lg = findLine(s, id); if (!lg) return;
@@ -1615,7 +1810,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     thisMonth: thisMonth, prevMonth: prevMonth, state: function () { return state; },
     honeydueText: function () { return honeydueText(scn()); },
     spendRows: function (m) { return spendRows(scn(), m); },
-    dateStatus: dateStatus, paceStatus: paceStatus
+    dateStatus: dateStatus, paceStatus: paceStatus, projectFund: projectFund
   };
 
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {

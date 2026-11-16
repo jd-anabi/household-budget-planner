@@ -345,7 +345,7 @@ section('checkin', async () => {
   check('starting lists every category, uncategorised line and "Anything else"', (await page.locator(actual).count()) === 10, String(await page.locator(actual).count()));
   const bal = await values(page, 'input[data-scope="cig"]');
   check('goal balances are pre-filled from the plan', bal.join() === '700,300,400', bal.join());
-  check('pre-filled balances are marked as assumed', (await countText(page, '.ci-assumed', 'assumed from plan')) === 3);
+  check('pre-filled goal balances are marked as assumed', (await countText(page, '.ci-assumed:not([data-out="cias-fund"])', 'assumed from plan')) === 3);
 
   await page.locator(actual).first().click();
   await page.keyboard.type('125');
@@ -406,9 +406,58 @@ section('goals', async () => {
   await page.selectOption(`#gby-${mv}`, '2027');
   const chip = () => page.locator(`[data-goal="${mv}"] .chip`).first().innerText();
   check('a goal date shows how much more is needed', (await chip()) === 'Needs $350/mo more to make Jun 2027', await chip());
+  const gl = await page.locator(`[data-goal="${mv}"]`).innerText();
+  check('a goal shows one projected date, from the same month as its status',
+    gl.includes('around Jan 2028') && !gl.includes('Feb 2028') && !gl.includes('At $400 a month'), gl);
   await page.click('[data-act="ci-start"]');
   const ciChip = await page.locator(`[data-out="cigs-${mv}"] .chip`).innerText();
   check('a goal on an unconfirmed check-in balance is marked assumed', ciChip.endsWith('(assumed)'), ciChip);
+  await ctx.close();
+});
+
+const stepText = (page, acct) => page.evaluate((a) => {
+  const li = Array.from(document.querySelectorAll('.steps li')).find((x) => x.textContent.includes(`Move to ${a}`));
+  return li ? li.textContent : '';
+}, acct);
+
+section('yearly', async () => {
+  const { ctx, page } = await openPage({ date: '2026-11-16T12:00' });
+  const bills = [{ name: 'Car', amt: 600, due: 3 }, { name: 'Gifts', amt: 800, due: 12 }];
+  const p = await page.evaluate((b) => [window.__hbp.projectFund(0, '2026-10', 1400 / 12, b), window.__hbp.projectFund(117, '2026-10', 1400 / 12, b)], bills);
+  check('fund: first-year shortfall', Math.abs(p[0].S - 816.67) < 0.01 && p[0].minKey === '2027-03' &&
+    p[0].months.map((m) => m.key).join() === '2026-12,2027-03' && Math.abs(p[0].months[0].F + 566.67) < 0.01, JSON.stringify(p[0]));
+  check('fund: with a balance', Math.abs(p[1].S - 699.67) < 0.01, JSON.stringify(p[1].S));
+
+  const js = await stepText(page, 'Joint savings');
+  check('the yearly share is moved to the fund each payday', js.includes('$1,217') && js.includes('yearly costs fund $117'), js);
+  const card = await cardText(page, 'yearly');
+  check('the yearly card warns about a first-year shortfall', card.includes('Short $817 by Mar 2027'), card.slice(0, 300));
+  check('the yearly card lists bills with the fund balance after each',
+    /Dec 2026[^]*−\$567/.test(card) && /Mar 2027[^]*−\$817/.test(card), card.slice(0, 400));
+
+  let rows = await hdRows(page);
+  const tr = rows.find((r) => r.name === 'Transportation');
+  const note = await page.locator('section[aria-label="Honeydue category limits"]').innerText();
+  check('Honeydue limits leave yearly costs to the fund', tr && tr.amt === '$150 / mo' && !rows.some((r) => r.name === 'Gifts'), JSON.stringify(rows.map((r) => r.name + ' ' + r.amt)));
+  check('Honeydue card names the yearly costs paid from the fund',
+    note.includes('Car registration & maintenance $600 (Mar)') && note.includes('Gifts & holidays $800 (Dec)'), note.slice(-300));
+
+  const sr = await page.evaluate(() => [window.__hbp.spendRows('2027-03'), window.__hbp.spendRows('2027-04')]
+    .map((rs) => rs.find((r) => r.name === 'Transportation').planned));
+  check('a check-in expects the full bill in its due month only', sr[0] === 750 && sr[1] === 150, JSON.stringify(sr));
+
+  await page.click('[data-act="ci-start"]');
+  check('the check-in pre-fills the fund balance', (await page.inputValue('#cif')) === '117' &&
+    (await page.locator('[data-out="cias-fund"]').innerText()) === 'assumed from plan');
+  check('the account check includes the fund', (await cardText(page, 'checkin')).includes('Joint savings holds $1,217'));
+
+  await page.selectOption('#fund-acct', '');
+  const jc = await stepText(page, 'Joint checking');
+  const js2 = await stepText(page, 'Joint savings');
+  check('with the fund off, transfers match the old app', jc.includes('$2,127') && js2.includes('$1,100'), jc + ' | ' + js2);
+  rows = await hdRows(page);
+  const tr2 = rows.find((r) => r.name === 'Transportation');
+  check('with the fund off, yearly costs are back in the limits at 1/12', tr2 && tr2.amt === '$200 / mo' && tr2.text.includes('includes yearly costs at 1/12'), JSON.stringify(tr2));
   await ctx.close();
 });
 
