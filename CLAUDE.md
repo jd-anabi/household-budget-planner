@@ -28,6 +28,7 @@ per-transaction tracking.
 - `sw.js`: service worker. Network-first for same-origin files (so pushes reach users when online),
   cache fallback offline; cache-first for Google Fonts.
 - `manifest.webmanifest`, `icons/`: install metadata and icons.
+- `tests/smoke.js`: headless-browser smoke test (Playwright). Not part of the app, so it stays out of `ASSETS`.
 
 ## Data model (`state`, v1)
 
@@ -67,6 +68,11 @@ and both themes must stay legible. Phone layout breakpoint is 680px; check at ~3
 Keep visible focus states and respect `prefers-reduced-motion`.
 
 ## Testing a change
+
+Start with `node tests/smoke.js [screenshot-dir]`. It serves the repo itself and checks steps 1, 3 and 4
+below (for the current data version only), no horizontal scroll at laptop and 390px widths in both themes, and
+no console errors; it exits non-zero on failure. It can't judge legibility, so look at the screenshots too.
+If you bump `v`, update `DATA_VERSION` in the test and add a check that an older plan file still imports.
 
 1. `python3 -m http.server 8000` in the repo, open http://localhost:8000.
 2. Check a laptop width and a phone width (~390px), light and dark.
