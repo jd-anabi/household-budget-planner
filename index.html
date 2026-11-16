@@ -743,7 +743,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function fundRow(month, s) {
     var prev = latestFundEntry(month);
     var start = prev ? n(prev.fund.balance) : n(state.fund.saved);
-    var months = prev ? Math.max(monthIndex(month) - monthIndex(prev.month), 1) : 1;
+    var months = prev ? Math.max(monthIndex(month) - monthIndex(prev.month), 1) : Math.max(0, monthIndex(month) - monthIndex(prevMonth(new Date())));
     var c = fundMonthly(s), bills = fundBills(s), due = 0;
     for (var k = 0; k < months; k++) {
       var mo = monthNum(monthKey(monthIndex(month) - k));
@@ -819,7 +819,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function goalRow(l, month, c) {
     var prev = latestGoalEntry(l, month);
     var start = prev ? n(prev.row.balance) : n(l.goal.saved);
-    var months = prev ? Math.max(monthIndex(month) - monthIndex(prev.ci.month), 1) : 1;
+    // "Saved so far" is the balance at the end of last month, so a first check-in for last month adds nothing.
+    var months = prev ? Math.max(monthIndex(month) - monthIndex(prev.ci.month), 1) : Math.max(0, monthIndex(month) - monthIndex(prevMonth(new Date())));
     var planned = monthly(l);
     return { line: l.id, name: l.name, acct: l.acct, target: goalTarget(l, c), planned: planned, months: months,
       start: start, balance: Math.round(start + planned * months), assumed: true };
@@ -853,7 +854,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       state.checkins.forEach(function (ci) {
         var r = entryFor(ci, l); if (!r) return;
         if (E === null) E = n(r.start);
-        E += n(r.planned) * (r.months || 1);
+        E += n(r.planned) * n(r.months);
       });
       st = paceStatus(B, E);
     } else return null;
@@ -886,28 +887,40 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   // Re-take the plan snapshots for a check-in, keeping what was typed in.
   function retakeCheckin(ci, scnId) {
-    var s = findScn(scnId) || scn(), c = calc(s), old = {};
-    ci.spend.forEach(function (r) { old[r.key] = r.actual; });
+    var s = findScn(scnId) || scn(), c = calc(s), byKey = {}, byName = {}, used = {};
+    ci.spend.forEach(function (r) { byKey[r.key] = r; if (!byName[r.name]) byName[r.name] = r; });
     ci.scn = s.id; ci.scnName = s.name || 'Untitled';
-    ci.spend = spendRows(s, ci.month).map(function (r) {
-      return { key: r.key, name: r.name, planned: r.planned, actual: old[r.key] === undefined ? null : old[r.key], note: r.note };
+    var rows = spendRows(s, ci.month).map(function (r) {
+      // Same key, else same name: lines not in a category have scenario-specific ids but shared names.
+      var o = byKey[r.key] && !used[r.key] ? byKey[r.key] : (byName[r.name] && !used[byName[r.name].key] ? byName[r.name] : null);
+      if (o) used[o.key] = true;
+      return { key: r.key, name: r.name, planned: r.planned, actual: o && o.actual !== undefined ? o.actual : null, note: r.note };
     });
-    var kept = ci.goals;
-    ci.goals = goalLines(s).map(function (l) {
+    // A typed actual whose row no longer exists still happened: count it under "Anything else".
+    var spare = 0, hasSpare = false;
+    ci.spend.forEach(function (r) { if (!used[r.key] && r.actual !== null && r.actual !== undefined) { spare += n(r.actual); hasSpare = true; } });
+    if (hasSpare) rows.forEach(function (r) { if (r.key === 'other') r.actual = (r.actual === null ? 0 : n(r.actual)) + spare; });
+    ci.spend = rows;
+    var kept = ci.goals, taken = [];
+    var goals = goalLines(s).map(function (l) {
       var row = null;
-      kept.forEach(function (r) { if (!row && r.line === l.id) row = r; });
-      kept.forEach(function (r) { if (!row && r.name === l.name) row = r; });
+      kept.forEach(function (r) { if (!row && taken.indexOf(r) < 0 && r.line === l.id) row = r; });
+      kept.forEach(function (r) { if (!row && taken.indexOf(r) < 0 && r.name === l.name) row = r; });
       if (!row) return goalRow(l, ci.month, c);
+      taken.push(row);
       row.line = l.id; row.name = l.name; row.acct = l.acct; row.target = goalTarget(l, c); row.planned = monthly(l);
       if (row.assumed) row.balance = Math.round(n(row.start) + row.planned * row.months);
       return row;
     });
+    // Balances someone typed for goals this scenario doesn't have are kept, so switching back restores them.
+    kept.forEach(function (r) { if (taken.indexOf(r) < 0 && !r.assumed) goals.push(r); });
+    ci.goals = goals;
     if (fundOn()) {
       if (!ci.fund) ci.fund = fundRow(ci.month, s);
       else {
         var fr = fundRow(ci.month, s);
         ci.fund.acct = fr.acct; ci.fund.planned = fr.planned; ci.fund.due = fr.due;
-        if (ci.fund.assumed) ci.fund.balance = Math.round(n(ci.fund.start) + fr.planned * (ci.fund.months || 1) - fr.due);
+        if (ci.fund.assumed) ci.fund.balance = Math.round(n(ci.fund.start) + fr.planned * n(ci.fund.months) - fr.due);
       }
     }
   }
@@ -1142,13 +1155,13 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       ci.goals.forEach(function (g) {
         h += '<div class="ci-goal"><span class="ci-n">' + esc(g.name) + '<span class="tag">' + esc(acctName(g.acct)) + '</span></span>' +
           '<span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="cig-' + esc(g.line) + '" data-scope="cig" data-field="balance" data-id="' + esc(g.line) + '" value="' + esc(round2(n(g.balance))) + '" aria-label="' + esc(g.name) + ' balance at the end of ' + esc(monthLong(ci.month)) + '"></span>' +
-          '<span class="ci-meta"><span>planned +' + money(n(g.planned) * (g.months || 1)) + '</span><span class="ci-assumed" data-out="cias-' + esc(g.line) + '"></span><span data-out="cigs-' + esc(g.line) + '"></span></span></div>';
+          '<span class="ci-meta"><span>planned +' + money(n(g.planned) * n(g.months)) + '</span><span class="ci-assumed" data-out="cias-' + esc(g.line) + '"></span><span data-out="cigs-' + esc(g.line) + '"></span></span></div>';
       });
       if (ci.fund) {
         var f = ci.fund;
         h += '<div class="ci-goal"><span class="ci-n">Yearly costs fund<span class="tag">' + esc(acctName(f.acct)) + '</span></span>' +
           '<span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="cif" data-scope="cif" data-field="balance" value="' + esc(round2(n(f.balance))) + '" aria-label="Yearly costs fund balance at the end of ' + esc(monthLong(ci.month)) + '"></span>' +
-          '<span class="ci-meta"><span>planned +' + money(n(f.planned) * (f.months || 1)) + ' − ' + money(n(f.due)) + ' due</span><span class="ci-assumed" data-out="cias-fund"></span><span data-out="cigs-fund"></span></span></div>';
+          '<span class="ci-meta"><span>planned +' + money(n(f.planned) * n(f.months)) + ' − ' + money(n(f.due)) + ' due</span><span class="ci-assumed" data-out="cias-fund"></span><span data-out="cigs-fund"></span></span></div>';
       }
       h += '</div><p class="note" data-out="ci-recon"></p>';
     }
@@ -1164,7 +1177,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       '<div style="text-align:right"><div class="total" data-out="fund-c"></div><div class="meta">set aside a month</div></div></div>' +
       '<div class="fields"><label class="field" for="fund-acct">Set aside each month in<select class="in" id="fund-acct" data-scope="fund" data-field="acct">' +
       '<option value=""' + (fundOn() ? '' : ' selected') + '>Don’t set money aside</option>' + optionList(SAVE_ACCTS, state.fund.acct) + '</select></label>' +
-      (fundOn() ? '<label class="field" for="fund-bal">In the fund now<span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="fund-bal" data-scope="fund" data-field="balance" value="' + esc(round2(fundBalance().balance)) + '"></span></label>' : '') +
+      (fundOn() ? '<label class="field" for="fund-bal">' + (fundBalance().month ? 'Balance at end of ' + esc(monthLabel(fundBalance().month)) : 'In the fund now') + '<span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="fund-bal" data-scope="fund" data-field="balance" value="' + esc(round2(fundBalance().balance)) + '"></span></label>' : '') +
       '</div>';
     if (ys.length) {
       h += '<div class="rows yr-rows"><div class="yr-row yr-head" aria-hidden="true"><span>Item</span><span class="r">Per year</span><span>Paid in</span></div>';
@@ -1264,7 +1277,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       h += '<label for="gn-' + l.id + '"><input class="in months" type="number" inputmode="numeric" min="1" max="24" step="1" id="gn-' + l.id + '" data-scope="goal" data-id="' + l.id + '" data-field="months" value="' + esc(g.months) + '"> months</label>';
     }
     if (g.mode !== 'none') {
-      h += '<label for="gs-' + l.id + '">Saved so far <span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="50" id="gs-' + l.id + '" data-scope="goal" data-id="' + l.id + '" data-field="saved" value="' + esc(round2(goalBalance(l))) + '"></span></label>' +
+      var ge = latestGoalEntry(l);
+      h += '<label for="gs-' + l.id + '">' + (ge ? 'Balance at end of ' + esc(monthLabel(ge.ci.month)) : 'Saved so far') + ' <span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="50" id="gs-' + l.id + '" data-scope="goal" data-id="' + l.id + '" data-field="saved" value="' + esc(round2(goalBalance(l))) + '"></span></label>' +
         byHTML(l, g) +
         '<span class="goal-out" data-out="g-' + l.id + '"></span>';
     }

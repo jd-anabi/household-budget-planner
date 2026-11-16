@@ -67,8 +67,10 @@ per-transaction tracking.
   The v1 app has the same guard, so rolling the v2 features back cannot overwrite a v2 plan.
 - Monthly conversion: weekly × 52/12, yearly × 1/12. All amounts are after-tax dollars.
 - Goal balance is one number: the latest check-in's `balance` for that goal (matched by line id, then
-  name), else `goal.saved`; "Saved so far" edits that same number. Check-in balances are pre-filled
-  as `start + planned × months` (whole dollars) and marked `assumed` until edited.
+  name), else `goal.saved`; "Saved so far" edits that same number (and is then labelled
+  "Balance at end of <month>"). Check-in balances are pre-filled as `start + planned × months` (whole
+  dollars) and marked `assumed` until edited; a first check-in counts months from the end of last month,
+  so starting last month's check-in changes no status.
 - Goal status: base month = latest check-in month, else last month. With `by`: on track if the monthly
   amount ≥ (goal − balance) / months left. Without: on track if balance ≥ first start + Σ planned × months.
   A "months" goal targets N × the scenario's monthly necessities (used for the emergency fund).

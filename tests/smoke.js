@@ -342,7 +342,7 @@ section('checkin', async () => {
   const actual = 'input[data-scope="ci"][data-field="actual"]';
   check('starting lists every category, uncategorised line and "Anything else"', (await page.locator(actual).count()) === 10, String(await page.locator(actual).count()));
   const bal = await values(page, 'input[data-scope="cig"]');
-  check('goal balances are pre-filled from the plan', bal.join() === '700,300,400', bal.join());
+  check('a first check-in for last month starts goal balances from "Saved so far"', bal.join() === '0,0,0', bal.join());
   check('pre-filled goal balances are marked as assumed', (await countText(page, '.ci-assumed:not([data-out="cias-fund"])', 'assumed from plan')) === 3);
 
   await page.locator(actual).first().click();
@@ -444,6 +444,7 @@ section('yearly', async () => {
     .map((rs) => rs.find((r) => r.name === 'Transportation').planned));
   check('a check-in expects the full bill in its due month only', sr[0] === 750 && sr[1] === 150, JSON.stringify(sr));
 
+  await page.selectOption('#ci-month', '2026-11'); // this month: one month of set-aside on top of the fund
   await page.click('[data-act="ci-start"]');
   check('the check-in pre-fills the fund balance', (await page.inputValue('#cif')) === '117' &&
     (await page.locator('[data-out="cias-fund"]').innerText()) === 'assumed from plan');
@@ -512,6 +513,46 @@ section('tour', async () => {
   const w = await ph.page.evaluate(() => document.querySelector('#tour .tour-in').getBoundingClientRect().width);
   check('on a phone the tour fits the screen', w <= 390 && worst <= 0, `caption ${w}px, overflow ${worst}px`);
   await ph.ctx.close();
+});
+
+section('retake', async () => {
+  const { ctx, page } = await openPage({ date: '2026-11-16T12:00' });
+  await page.click('[data-act="ci-start"]');
+  const me = await page.evaluate(() => window.__hbp.state().checkins[0].spend.findIndex((r) => r.name === 'Personal spending: me'));
+  await page.fill(`#cia-${me}`, '210');
+  const mv = await lineId(page, 'Move-in fund (deposit, first month, movers)');
+  await page.fill(`#cig-${mv}`, '999');
+  await page.selectOption('#ci-scn', 'later');
+  await page.selectOption('#ci-scn', 'now');
+  const ci = await page.evaluate(() => window.__hbp.state().checkins[0]);
+  const me2 = ci.spend.find((r) => r.name === 'Personal spending: me');
+  const row = ci.goals.find((g) => g.name.startsWith('Move-in'));
+  check('switching "Compared with" and back keeps a typed actual', !!me2 && me2.actual === 210, JSON.stringify(me2));
+  check('switching "Compared with" and back keeps a typed balance', !!row && row.balance === 999 && row.assumed === false, JSON.stringify(row));
+  check('"Saved so far" keeps the typed balance after switching back', (await page.inputValue(`#gs-${mv}`)) === '999');
+  await ctx.close();
+});
+
+section('first-checkin', async () => {
+  const { ctx, page } = await openPage({ date: '2026-11-16T12:00' });
+  const mv = await lineId(page, 'Move-in fund (deposit, first month, movers)');
+  const ef = await lineId(page, 'Emergency fund');
+  await page.selectOption(`#gbm-${mv}`, '06');
+  await page.selectOption(`#gby-${mv}`, '2027');
+  await page.fill(`#gs-${ef}`, '500');
+  const mvChip = () => page.locator(`[data-goal="${mv}"] .chip`).first().innerText();
+  const before = { fund: await cardText(page, 'yearly'), mv: await mvChip() };
+  await page.click('[data-act="ci-start"]'); // October, last month
+  check('a first check-in for last month starts from "Saved so far"', (await page.inputValue(`#cig-${ef}`)) === '500');
+  const after = { fund: await cardText(page, 'yearly'), mv: await mvChip() };
+  check('starting a check-in changes no goal or fund status',
+    before.fund.includes('Short $817 by Mar 2027') && after.fund.includes('Short $817 by Mar 2027') && after.mv.startsWith(before.mv),
+    JSON.stringify({ before: before.mv, after: after.mv }));
+  const lab = await page.locator(`label[for="gs-${ef}"]`).innerText();
+  const flab = await page.locator('label[for="fund-bal"]').innerText();
+  check('a balance that comes from a check-in is labelled with its month',
+    lab.includes('Balance at end of Oct 2026') && flab.includes('Balance at end of Oct 2026'), `${lab} | ${flab}`);
+  await ctx.close();
 });
 
 /* ---------------- runner ---------------- */

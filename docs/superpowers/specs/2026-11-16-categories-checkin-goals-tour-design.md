@@ -319,8 +319,14 @@ Goal balances (one stored number per goal, so nothing can drift):
 - The editor's "Saved so far" input shows the current balance. If the goal has a check-in, typing
   there edits that latest check-in's `balance` (and sets `assumed: false`). Otherwise it edits
   `goal.saved` as today.
+  When the balance comes from a check-in, the input is labelled "Balance at end of <Mon YYYY>"
+  (likewise "In the fund now"), so an edit after a lapse visibly changes that month.
+- Re-taking matches typed actuals by key, else by row name, and adds any typed actual whose row is gone
+  to "Anything else"; typed goal balances for goals the new scenario lacks are kept.
 - Starting a check-in stores, per goal: `start` = the current balance; `months` = months since that
-  goal's previous check-in (`monthIndex(month) − monthIndex(previousMonth)`), or 1 for its first;
+  goal's previous check-in (`monthIndex(month) − monthIndex(previousMonth)`), or, for its first,
+  months since the base month (`max(0, monthIndex(month) − monthIndex(previous calendar month))`, so 0
+  for last month: "Saved so far" already is last month's closing balance; changed after review);
   `balance` = `start + planned × months`; `assumed: true`. The user corrects only exceptions.
   Assumed balances show "assumed from plan" in the form, and the goal's status chip adds
   "(assumed)" while its current balance is assumed.
@@ -422,7 +428,8 @@ line "These are paid from checking when due. Choose an account above to set mone
 with its balance and the status chip above.
 
 **Check-in (fund on):** one "Yearly costs fund" row in "Savings balances": `start` = current fund
-balance; `months` = months since the previous check-in with fund data, or 1; `planned` = $c$;
+balance; `months` = months since the previous check-in with fund data, or for the first one months
+since the base month (0 for last month); `planned` = $c$;
 `due` = total of dated bills due in the covered months; pre-filled
 `balance = start + planned × months − due`, `assumed: true`. Re-taking snapshots and deleting work
 as for goals.
