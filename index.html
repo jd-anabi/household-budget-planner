@@ -323,7 +323,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   var PLAN_KEY = 'household-budget-planner:plan:v1';
   var NAME_KEY = 'household-budget-planner:name';
   var APP_ID = 'household-budget-planner';
-  var DATA_V = 1;
+  var DATA_V = 2;
+  var BACKUP_KEY = 'household-budget-planner:plan:v1-backup';
   var NEWER_MSG = 'This plan was saved by a newer version of the app. Reload while online to update.';
   var FREQ = { mo: { label: 'monthly', k: 1 }, wk: { label: 'weekly', k: 52 / 12 }, yr: { label: 'yearly', k: 1 / 12 } };
   var GROUPS = [
@@ -338,16 +339,59 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   var seq = 0;
   function nid() { seq += 1; return 'i' + Date.now().toString(36) + seq.toString(36); }
+  function newGoal() { return { mode: 'none', months: 6, amount: 0, saved: 0, by: '' }; }
   function L(g, name, amt, f, acct, goal) {
     var o = { id: nid(), g: g, name: name, amt: amt, f: f || 'mo', acct: acct };
-    if (goal) o.goal = goal;
+    if (g === 'need' || g === 'want') { o.cat = ''; o.due = 0; }
+    if (goal) { if (goal.by === undefined) goal.by = ''; o.goal = goal; }
     return o;
   }
 
+  /* ---------- months ('YYYY-MM', local time) ---------- */
+  var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  function pad2(x) { return (x < 10 ? '0' : '') + x; }
+  function monthIndex(key) { var p = String(key).split('-'); return parseInt(p[0], 10) * 12 + parseInt(p[1], 10) - 1; }
+  function monthKey(i) { var y = Math.floor(i / 12); return y + '-' + pad2(i - y * 12 + 1); }
+  function thisMonth(d) { d = d || new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1); }
+  function prevMonth(d) { return monthKey(monthIndex(thisMonth(d)) - 1); }
+  function monthLong(key) { var i = monthIndex(key); return MONTHS[((i % 12) + 12) % 12]; }
+  function monthLabel(key) { return monthLong(key).slice(0, 3) + ' ' + Math.floor(monthIndex(key) / 12); }
+
   /* Example plan shown on first open. Real numbers live only on your devices and in plan files you export. */
   function defaults() {
+    var cats = ['Bills & utilities', 'Groceries', 'Transportation', 'Eating out & fun', 'Personal', 'Gifts']
+      .map(function (name) { return { id: nid(), name: name }; });
+    var CAT_OF = {
+      'Rent (not paying yet)': 0, 'Rent': 0, 'Utilities (electric, gas, water)': 0, 'Internet': 0, 'Phone': 0, 'Insurance (car, renters)': 0,
+      'Groceries & household supplies': 1,
+      'Gas, transit & parking': 2, 'Car registration & maintenance': 2,
+      'Dining out & takeout': 3, 'Entertainment & outings': 3, 'Subscriptions (streaming, apps)': 3,
+      'Health costs (copays, prescriptions)': 4, 'Personal care': 4, 'Shopping & clothing': 4,
+      'Gifts & holidays': 5
+    };
+    var DUE = { 'Car registration & maintenance': 3, 'Gifts & holidays': 12 };
+    var p = example();
+    p.cats = cats;
+    p.scenarios.forEach(function (s) {
+      s.lines.forEach(function (l) {
+        if (l.g !== 'need' && l.g !== 'want') return;
+        l.cat = CAT_OF[l.name] !== undefined ? cats[CAT_OF[l.name]].id : '';
+        l.due = DUE[l.name] || 0;
+        if (l.goal) l.goal.by = '';
+      });
+      s.lines.forEach(function (l) {
+        if (l.goal && /^Move-in fund/.test(l.name)) l.goal.by = monthKey(monthIndex(thisMonth()) + 12);
+      });
+    });
+    return p;
+  }
+
+  function example() {
     return {
-      v: 1,
+      v: 2,
+      cats: [],
+      checkins: [],
+      fund: { acct: 'jsav', saved: 0 },
       touched: false,
       modifiedAt: 0,
       lastSync: null,
@@ -423,9 +467,38 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } }
 
-  function validPlan(p) {
-    return !!(p && p.v === 1 && Array.isArray(p.scenarios) && p.scenarios.length && p.accounts &&
+  function validShape(p) {
+    return !!(p && Array.isArray(p.scenarios) && p.scenarios.length && p.accounts &&
       p.scenarios.every(function (s) { return s && Array.isArray(s.lines) && Array.isArray(s.incomes); }));
+  }
+  function validPlan(p) {
+    return validShape(p) && p.v === DATA_V && Array.isArray(p.cats) && Array.isArray(p.checkins) &&
+      !!p.fund && typeof p.fund === 'object';
+  }
+
+  // Upgrades a v1 plan to v2 (v2 passes through). Works on a copy, only adds missing fields,
+  // keeps everything else (unknown fields included). Returns null if the result isn't a valid plan.
+  function migrate(p) {
+    if (!p || typeof p !== 'object') return null;
+    var q = JSON.parse(JSON.stringify(p));
+    if (q.v === 1) {
+      if (!validShape(q)) return null;
+      if (!Array.isArray(q.cats)) q.cats = [];
+      if (!Array.isArray(q.checkins)) q.checkins = [];
+      if (!q.fund || typeof q.fund !== 'object') q.fund = { acct: '', saved: 0 };
+      q.scenarios.forEach(function (s) {
+        s.lines.forEach(function (l) {
+          if (!l || typeof l !== 'object') return;
+          if (l.g === 'need' || l.g === 'want') {
+            if (l.cat === undefined) l.cat = '';
+            if (l.due === undefined) l.due = 0;
+          }
+          if (l.goal && typeof l.goal === 'object' && l.goal.by === undefined) l.goal.by = '';
+        });
+      });
+      q.v = 2;
+    }
+    return validPlan(q) ? q : null;
   }
 
   // A plan saved by a newer version of the app must never be overwritten by this one:
@@ -434,10 +507,16 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   var state = null;
   var blocked = false;
+  var migratedOnLoad = false;
   try {
-    var stored = JSON.parse(lsGet(PLAN_KEY) || 'null');
+    var rawStored = lsGet(PLAN_KEY);
+    var stored = JSON.parse(rawStored || 'null');
     if (tooNew(stored)) blocked = true;
-    else if (validPlan(stored)) state = stored;
+    else if (stored && stored.v === 1) {
+      // Keep the pre-upgrade plan on this device in case the upgrade itself ever has a bug.
+      var up = migrate(stored);
+      if (up) { if (!lsGet(BACKUP_KEY)) lsSet(BACKUP_KEY, rawStored); state = up; migratedOnLoad = true; }
+    } else if (validPlan(stored)) state = stored;
   } catch (e) { state = null; }
   if (!state) state = defaults();
   var deviceName = lsGet(NAME_KEY) || '';
@@ -448,6 +527,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   var pendingDelete = null;
   var pendingReset = false;
   var copyFallback = false;
+
+  if (migratedOnLoad) persist();
 
   if (navigator.storage && navigator.storage.persist) {
     try { navigator.storage.persist().catch(function () {}); } catch (e) { /* ignore */ }
@@ -649,7 +730,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   }
 
   function goalHTML(l) {
-    var g = l.goal || { mode: 'none', months: 6, amount: 0, saved: 0 };
+    var g = l.goal || newGoal();
     var h = '<div class="goal" data-goalrow="' + l.id + '">' +
       '<label for="gm-' + l.id + '">Goal <select class="in" id="gm-' + l.id + '" data-scope="goal" data-id="' + l.id + '" data-field="mode">' +
         '<option value="none"' + (g.mode === 'none' ? ' selected' : '') + '>None</option>' +
@@ -913,7 +994,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     var now = new Date();
     state.lastSync = { at: now.getTime(), kind: 'export', by: deviceName };
     persist();
-    var payload = { app: APP_ID, v: 1, exportedAt: now.toISOString(), exportedBy: deviceName, state: state };
+    var payload = { app: APP_ID, v: DATA_V, exportedAt: now.toISOString(), exportedBy: deviceName, state: state };
     var json = JSON.stringify(payload, null, 2);
     var name = 'budget-plan-' + ymd(now) + '.json';
     var blob = new Blob([json], { type: 'application/json' });
@@ -959,8 +1040,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       try { p = JSON.parse(String(reader.result)); } catch (err) { p = null; }
       if (p && p.app === APP_ID && (tooNew(p) || tooNew(p.state))) {
         banner = newerBanner();
-      } else if (p && p.app === APP_ID && validPlan(p.state)) {
-        banner = { kind: 'import', payload: p };
+      } else if (p && p.app === APP_ID && migrate(p.state)) {
+        banner = { kind: 'import', payload: p, plan: migrate(p.state) };
       } else {
         banner = { kind: 'error', html: '<b>That file isn’t a budget plan file.</b><small>Choose a file this app exported; its name starts with “budget-plan-”.</small>' };
       }
@@ -973,7 +1054,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   function confirmImport() {
     var p = banner.payload;
-    state = p.state;
+    state = banner.plan;
     var now = Date.now();
     state.touched = true;
     state.modifiedAt = now;
@@ -999,7 +1080,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (sc === 'device') { deviceName = v; lsSet(NAME_KEY, v); return; }
     if (sc === 'line') { var l = findLine(s, id); if (!l) return; if (t.tagName === 'SELECT') return; l[f] = isNum ? n(v) : v; }
     else if (sc === 'inc') { var x = findInc(s, id); if (!x) return; x[f] = isNum ? n(v) : v; }
-    else if (sc === 'goal') { var lg = findLine(s, id); if (!lg) return; if (f === 'mode') return; lg.goal = lg.goal || { mode: 'none', months: 6, amount: 0, saved: 0 }; lg.goal[f] = n(v); }
+    else if (sc === 'goal') { var lg = findLine(s, id); if (!lg) return; if (f === 'mode') return; lg.goal = lg.goal || newGoal(); lg.goal[f] = n(v); }
     else if (sc === 'scn') { if (f === 'depositTo') return; s[f] = v; }
     else if (sc === 'acct') {
       state.accounts[id] = state.accounts[id] || { name: id, note: '' };
@@ -1017,7 +1098,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     else if (sc === 'scn') { s[f] = v; changed(); refresh(); }
     else if (sc === 'goal') {
       var lg = findLine(s, id); if (!lg) return;
-      lg.goal = lg.goal || { mode: 'none', months: 6, amount: 0, saved: 0 };
+      lg.goal = lg.goal || newGoal();
       lg.goal.mode = v; changed(); rerenderEditor('gm-' + id);
     }
   });
@@ -1043,7 +1124,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (act === 'add-line') {
       var g = b.getAttribute('data-g');
       var nl = L(g, g === 'save' ? 'New savings item' : 'New item', 0, 'mo', g === 'save' ? 'jsav' : 'jchk');
-      if (g === 'save') nl.goal = { mode: 'none', months: 6, amount: 0, saved: 0 };
+      if (g === 'save') nl.goal = newGoal();
       var lastIdx = -1; s.lines.forEach(function (l, i) { if (l.g === g) lastIdx = i; });
       s.lines.splice(lastIdx + 1, 0, nl);
       changed(); rerenderEditor('n-' + nl.id);
@@ -1094,6 +1175,12 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   window.addEventListener('pagehide', function () { if (saveTimer) { clearTimeout(saveTimer); persist(); } });
 
   renderAll();
+
+  // Read-only hooks for tests/smoke.js (no data leaves the device).
+  window.__hbp = {
+    migrate: migrate, validPlan: validPlan, monthIndex: monthIndex, monthKey: monthKey,
+    thisMonth: thisMonth, prevMonth: prevMonth, state: function () { return state; }
+  };
 
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
     window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });

@@ -24,7 +24,7 @@ const ROOT = path.resolve(__dirname, '..');
 const APP_ID = 'household-budget-planner';
 const PLAN_KEY = 'household-budget-planner:plan:v1';
 const BACKUP_KEY = 'household-budget-planner:plan:v1-backup';
-const DATA_VERSION = 1; // Bump with the data model, and add a check that an older plan file still imports.
+const DATA_VERSION = 2; // Bump with the data model, and add a check that an older plan file still imports.
 const FIXTURE_V1 = path.join(__dirname, 'fixtures', 'plan-v1.json');
 const SHOTS = process.argv[2] ? path.resolve(process.argv[2]) : null;
 const ONLY = (process.env.ONLY || '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -240,6 +240,41 @@ section('guard', async () => {
   await bannerText(b.page);
   check('importing a newer file shows the newer-version message', (await bannerText(b.page)).includes('newer version'));
   await b.ctx.close();
+});
+
+section('migration', async () => {
+  const fx = JSON.parse(fs.readFileSync(FIXTURE_V1, 'utf8'));
+  const withExtra = Object.assign({}, fx, { state: Object.assign({}, fx.state, { extra: { a: 1 } }) });
+  const f = path.join(TMP, 'v1.json');
+  fs.writeFileSync(f, JSON.stringify(withExtra));
+  const { ctx, page } = await openPage({});
+  await page.setInputFiles('#import-file', f);
+  await page.locator('[data-act="import-confirm"]').click();
+  const st = await page.evaluate(() => window.__hbp.state());
+  check('v1 file imports as v2', st.v === 2 && st.cats.length === 0 && st.checkins.length === 0 && st.fund.acct === '' && st.fund.saved === 0);
+  check('unknown fields are kept', isDeepStrictEqual(st.extra, { a: 1 }));
+  const lines = (s) => s.scenarios.flatMap((x) => x.lines);
+  check('every v1 line keeps its fields', lines(fx.state).length === lines(st).length &&
+    lines(fx.state).every((l, i) => ['id', 'g', 'name', 'amt', 'f', 'acct'].every((k) => isDeepStrictEqual(lines(st)[i][k], l[k]))));
+  check('need/want lines get cat and due', lines(st).filter((l) => l.g !== 'save').every((l) => l.cat === '' && l.due === 0));
+  check('goals get an empty by', lines(st).filter((l) => l.goal).every((l) => l.goal.by === ''));
+  await ctx.close();
+
+  const raw = JSON.stringify(fx.state);
+  const b = await openPage({ storage: { [PLAN_KEY]: raw } });
+  check('stored v1 plan migrates on load', (await b.page.evaluate((k) => JSON.parse(localStorage.getItem(k)).v, PLAN_KEY)) === 2);
+  check('stored v1 plan is backed up', (await b.page.evaluate((k) => localStorage.getItem(k), BACKUP_KEY)) === raw);
+  const m = await b.page.evaluate(() => [window.__hbp.prevMonth(new Date(2027, 0, 15)), window.__hbp.monthKey(window.__hbp.monthIndex('2026-12') + 1)]);
+  check('months roll over the year', m[0] === '2026-12' && m[1] === '2027-01', JSON.stringify(m));
+  await b.ctx.close();
+
+  const c = await openPage({});
+  const ex = await c.page.evaluate(() => window.__hbp.state());
+  const car = lines(ex).find((l) => l.name === 'Car registration & maintenance');
+  check('example plan is v2 with six categories and the fund on',
+    ex.v === 2 && ex.cats.length === 6 && ex.fund.acct === 'jsav' && car && car.due === 3 && !!car.cat,
+    JSON.stringify({ v: ex.v, cats: ex.cats && ex.cats.length, fund: ex.fund }));
+  await c.ctx.close();
 });
 
 /* ---------------- runner ---------------- */
