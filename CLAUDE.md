@@ -56,6 +56,10 @@ per-transaction tracking.
 
 - Saved to `localStorage` key `household-budget-planner:plan:v1` on every edit (debounced). The key
   name is an address, not the data version.
+- Several windows on one device: when another window saves the plan (the `storage` event), this one
+  reloads it through `readStored()`, the same path as on load (upgrade, newer-version guard, backup),
+  drops its own pending save and re-renders. It never writes back from that handler, or two windows would
+  overwrite each other.
 - Export file: `{ app: 'household-budget-planner', v: 2, exportedAt, exportedBy, state }`, named
   `budget-plan-YYYY-MM-DD.json`. On touch devices it uses the share sheet; otherwise a download.
   Import validates, then asks before replacing the device's plan.

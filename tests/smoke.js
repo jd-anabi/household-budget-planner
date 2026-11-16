@@ -582,6 +582,82 @@ section('import-safety', async () => {
   await b.ctx.close();
 });
 
+// Two windows of the app on one device share localStorage. Opens both in one browser context.
+async function twoWindows(opts = {}) {
+  const { ctx, page: a } = await openPage(opts);
+  const b = await ctx.newPage();
+  watch(b, current);
+  if (opts.date) await b.clock.setFixedTime(new Date(opts.date));
+  await b.goto(APP_URL, { waitUntil: 'networkidle' });
+  return { ctx, a, b };
+}
+const rawPlan = (page) => page.evaluate((k) => localStorage.getItem(k), PLAN_KEY);
+const pagehide = (page) => page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false })));
+const until = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 3000 }).then(() => true, () => false);
+// Edits an amount and waits for the debounced save, so the window's pagehide would write its plan again.
+async function editAndSave(page, value) {
+  await page.locator(AMT).first().fill(value);
+  await until(page, ([k, v]) => (localStorage.getItem(k) || '').includes(`"amt":${v}`), [PLAN_KEY, value]);
+}
+
+section('two-windows', async () => {
+  const fx = JSON.parse(fs.readFileSync(FIXTURE_V1, 'utf8'));
+
+  // A check-in started in one window survives the other window's next edit and its pagehide.
+  let w = await twoWindows({ date: '2026-11-16T12:00' });
+  await editAndSave(w.b, '1111');
+  await w.b.click('[data-act="reset"]'); // armed: one more click would reset the plan
+  await w.a.click('[data-act="ci-start"]');
+  const saved = await until(w.a, (k) => { try { return JSON.parse(localStorage.getItem(k)).checkins.length === 1; } catch (e) { return false; } }, PLAN_KEY);
+  check('a check-in started in one window is saved', saved);
+  check('the other window shows it without a reload',
+    await until(w.b, () => document.querySelectorAll('input[data-scope="ci"][data-field="actual"]').length === 10));
+  check('the other window says it was updated', await bannerHas(w.b, 'Updated from another window'));
+  check('a click-twice confirm armed before the update is disarmed', !(await w.b.locator('#foot').innerText()).includes('Click again'));
+  await w.b.locator(AMT).first().fill('2222');
+  await pagehide(w.b);
+  const after = JSON.parse(await rawPlan(w.a));
+  check('an edit and pagehide in the other window keep the check-in', after.checkins.length === 1 && after.checkins[0].month === '2026-10',
+    `${after.checkins.length} check-ins stored`);
+  check('the first window then shows that edit', await until(w.a, (sel) => document.querySelector(sel).value === '2222', AMT));
+  await w.ctx.close();
+
+  // A newer app version in another window saved a newer plan: this window must stop saving, as on load.
+  w = await twoWindows({});
+  await editAndSave(w.b, '1111');
+  const newer = JSON.stringify(Object.assign({}, fx.state, { v: DATA_VERSION + 1 }));
+  await w.a.evaluate(([k, v]) => localStorage.setItem(k, v), [PLAN_KEY, newer]);
+  check('a newer plan saved in another window shows the newer-version message', await bannerHas(w.b, 'newer version'));
+  await w.b.locator(AMT).first().fill('2222');
+  await w.b.waitForTimeout(500);
+  await pagehide(w.b);
+  check('and this window never saves over it', (await rawPlan(w.b)) === newer);
+  await w.ctx.close();
+
+  // An older-format plan from another window goes through the same migration, and is not written back.
+  w = await twoWindows({});
+  await editAndSave(w.b, '1111');
+  const older = JSON.parse(JSON.stringify(fx.state));
+  older.scenarios[0].name = 'Saved by an older window';
+  const olderRaw = JSON.stringify(older);
+  await w.a.evaluate(([k, v]) => localStorage.setItem(k, v), [PLAN_KEY, olderRaw]);
+  check('a v1 plan saved in another window is migrated and shown',
+    await until(w.b, () => document.getElementById('tabs').innerText.includes('Saved by an older window')));
+  await w.b.waitForTimeout(500);
+  await pagehide(w.b);
+  check('the window that receives a change does not write it back', (await rawPlan(w.b)) === olderRaw);
+  await w.ctx.close();
+
+  // Something unreadable in storage: keep this window's plan and back the value up before it can be saved over.
+  w = await twoWindows({});
+  await editAndSave(w.b, '1111');
+  await w.a.evaluate((k) => localStorage.setItem(k, '{"broken":'), PLAN_KEY);
+  check('an unreadable value from another window is backed up',
+    await until(w.b, (k) => localStorage.getItem(k) === '{"broken":', BACKUP_KEY));
+  check('and this window keeps its own plan', (await firstAmount(w.b)) === '1111');
+  await w.ctx.close();
+});
+
 /* ---------------- runner ---------------- */
 
 (async () => {
