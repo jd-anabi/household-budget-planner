@@ -157,6 +157,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focu
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; display: flex; flex-direction: column; gap: 14px; }
 .card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .card-head .meta { font-size: 13px; color: var(--ink-2); }
+/* A title with a description wraps the description beside the total, so the total stays top right;
+   it drops below only when the text would get narrower than 18em (phones). */
+.card-head > div:first-child { flex: 1 1 18em; min-width: 0; }
 
 .summary .stats { display: flex; flex-wrap: wrap; gap: 12px 36px; align-items: flex-end; }
 .stat { display: flex; flex-direction: column; gap: 2px; }
@@ -303,7 +306,8 @@ textarea.copybox { width: 100%; min-height: 120px; font: 13px/1.4 ui-monospace, 
 .ci-start { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
 .ci-start .field { min-width: 160px; }
 .ci-scn { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; color: var(--ink-2); margin-bottom: 12px; }
-.ci-scn .in { width: auto; padding: 4px 6px; font-size: 13px; }
+.ci-scn label { min-width: 0; }
+.ci-scn .in { width: auto; max-width: 100%; padding: 4px 6px; font-size: 13px; }
 .ci-rows { display: flex; flex-direction: column; gap: 6px; }
 .ci-head, .ci-row { display: grid; grid-template-columns: minmax(0, 1fr) 84px 120px 120px; gap: 8px; align-items: center; font-size: 14px; }
 .ci-head { font-size: 12px; font-weight: 600; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.04em; }
@@ -633,6 +637,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   var ciShown = null;       // month the card is currently showing (set while rendering)
   var pendingReset = false;
   var copyFallback = false;
+  // A month opened from the history and armed deletes belong to the plan on screen; a new plan starts without them.
+  function resetView() { ciView = null; pendingCiDel = null; pendingDeleteCat = null; pendingDelete = null; }
 
   if (migratedOnLoad) persist();
 
@@ -765,17 +771,24 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (fb.assumed) st.text += ' (assumed)';
     return st;
   }
-  function fundRow(month, s) {
-    var prev = latestFundEntry(month);
-    var start = prev ? n(prev.fund.balance) : n(state.fund.saved);
-    var months = prev ? Math.max(monthIndex(month) - monthIndex(prev.month), 1) : Math.max(0, monthIndex(month) - monthIndex(prevMonth(new Date())));
-    var c = fundMonthly(s), bills = fundBills(s), due = 0;
+  // Yearly bills due in the `months` months that end with `month`.
+  function fundDue(s, month, months) {
+    var bills = fundBills(s), due = 0;
     for (var k = 0; k < months; k++) {
       var mo = monthNum(monthKey(monthIndex(month) - k));
       bills.forEach(function (b) { if (b.due === mo) due += b.amt; });
     }
-    return { acct: state.fund.acct, planned: c, due: due, months: months, start: start, balance: Math.round(start + c * months - due), assumed: true };
+    return due;
   }
+  function fundRow(month, s) {
+    var prev = latestFundEntry(month);
+    var start = prev ? n(prev.fund.balance) : n(state.fund.saved);
+    var months = prev ? Math.max(monthIndex(month) - monthIndex(prev.month), 1) : Math.max(0, monthIndex(month) - monthIndex(prevMonth(new Date())));
+    var c = fundMonthly(s), due = fundDue(s, month, months);
+    return { acct: state.fund.acct, planned: c, due: due, months: months, start: start, balance: fundPrefill(start, c, months, due), assumed: true };
+  }
+  // What the plan expects in the fund; a bill bigger than the fund empties it (checking pays the rest), so never below 0.
+  function fundPrefill(start, c, months, due) { return Math.max(0, Math.round(start + c * months - due)); }
   function fundSentence(s) {
     if (!fundOn()) return '';
     var ys = s.lines.filter(isYearly).filter(function (l) { return n(l.amt) >= 0.5; });
@@ -943,9 +956,10 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (fundOn()) {
       if (!ci.fund) ci.fund = fundRow(ci.month, s);
       else {
-        var fr = fundRow(ci.month, s);
-        ci.fund.acct = fr.acct; ci.fund.planned = fr.planned; ci.fund.due = fr.due;
-        if (ci.fund.assumed) ci.fund.balance = Math.round(n(ci.fund.start) + fr.planned * n(ci.fund.months) - fr.due);
+        // Keep the row's months (and start): the bills due are counted over those same months.
+        var fm = n(ci.fund.months);
+        ci.fund.acct = state.fund.acct; ci.fund.planned = fundMonthly(s); ci.fund.due = fundDue(s, ci.month, fm);
+        if (ci.fund.assumed) ci.fund.balance = fundPrefill(n(ci.fund.start), ci.fund.planned, fm, ci.fund.due);
       }
     }
   }
@@ -1150,9 +1164,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (others.length || ciView) {
       h += '<div class="ci-hist"><span>' + (ci ? 'Other months:' : 'Earlier months:') + '</span>' +
         others.map(function (x) {
-          return '<button class="btn ghost" type="button" data-act="ci-view" data-id="' + x.month + '">' + esc(monthLabel(x.month)) + ' · <span data-out="cih-' + x.month + '"></span></button>';
+          return '<button class="btn ghost" id="civ-' + x.month + '" type="button" data-act="ci-view" data-id="' + x.month + '">' + esc(monthLabel(x.month)) + ' · <span data-out="cih-' + x.month + '"></span></button>';
         }).join('') +
-        (ciView ? '<button class="btn ghost" type="button" data-act="ci-view" data-id="">Close</button>' : '') + '</div>';
+        (ciView ? '<button class="btn ghost" id="ci-close" type="button" data-act="ci-view" data-id="" aria-label="Close the ' + esc(monthLabel(ciView)) + ' check-in">Close</button>' : '') + '</div>';
     }
     return h + '</section>';
   }
@@ -1163,7 +1177,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       var opts = state.scenarios.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === ci.scn ? ' selected' : '') + '>' + esc(x.name || 'Untitled') + '</option>'; }).join('');
       if (!findScn(ci.scn)) opts = '<option value="' + esc(ci.scn) + '" selected>' + esc(ci.scnName) + ' (deleted)</option>' + opts;
       h += '<label for="ci-scn">Compared with <select class="in" id="ci-scn" data-scope="ci" data-field="scn">' + opts + '</select></label>' +
-        '<button class="btn ghost" type="button" data-act="ci-retake">Use current plan amounts</button>';
+        '<button class="btn ghost" id="ci-retake" type="button" data-act="ci-retake">Use current plan amounts</button>';
     } else {
       h += 'Compared with <b>' + esc(ci.scnName) + '</b>';
     }
@@ -1190,7 +1204,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       }
       h += '</div><p class="note" data-out="ci-recon"></p>';
     }
-    h += '<div class="ci-foot"><span></span><button class="btn ghost danger" type="button" data-act="ci-del" data-id="' + ci.month + '">' +
+    h += '<div class="ci-foot"><span></span><button class="btn ghost danger" id="ci-del" type="button" data-act="ci-del" data-id="' + ci.month + '">' +
       (pendingCiDel === ci.month ? 'Click again to delete this check-in' : 'Delete this check-in') + '</button></div>';
     return h;
   }
@@ -1401,7 +1415,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
         '<div class="stat"><span>Planned</span><b>' + money(c.P) + '</b></div>' +
         '<div class="stat"><span>Savings rate</span><b>' + pct(c.rate) + '</b></div>' +
         '<div class="stat"><span>Status</span><span class="chip ' + st.tone + '">' + esc(st.text) + '</span>' +
-          (due.due ? '<span class="chip warn">' + esc(monthLong(due.month)) + ' check-in not done</span>' : '') + '</div>' +
+          // The untouched example plan has nothing to check in on yet.
+          (due.due && state.touched ? '<span class="chip warn">' + esc(monthLong(due.month)) + ' check-in not done</span>' : '') + '</div>' +
       '</div>' +
       '<div class="stack-wrap"><div class="stack" role="img" aria-label="Necessities ' + money(c.g.need) + ', savings ' + money(c.g.save) + ', variable ' + money(c.g.want) + ', unassigned ' + money(leftPos) + '">' +
         '<div class="seg-need" style="width:' + w(c.g.need) + '"></div>' +
@@ -1439,7 +1454,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     var ls = state.lastSync;
     var last = ls ? (ls.kind === 'export' ? 'Last exported ' : 'Last imported ') + esc(when(ls.at)) + (ls.by ? ' (' + esc(ls.by) + ')' : '') : 'Not exported or imported yet';
     return '<section class="card" aria-label="Sharing between devices" data-tour="sharing"><div class="card-head"><h2>Sharing between devices</h2></div>' +
-      '<div class="sync-meta"><span><b>' + (storageOk ? 'Saved on this device automatically' : 'Can’t save on this device') + '</b></span>' +
+      '<div class="sync-meta"><span><b>' + (blocked ? 'Not saved: a newer plan is stored on this device' : storageOk ? 'Saved on this device automatically' : 'Can’t save on this device') + '</b></span>' +
       '<span>' + last + '</span>' +
       (unsyncedEdits() ? '<span class="chip warn" style="align-self:flex-start">Edits not exported yet</span>' : '') + '</div>' +
       '<label class="field" for="device-name">Your name (written into files you export)<input class="in" id="device-name" data-scope="device" data-field="name" value="' + esc(deviceName) + '" placeholder="e.g. J"></label>' +
@@ -1598,7 +1613,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function renderSaveStatus() {
     var el = document.getElementById('save-status'); if (!el) return;
     var tone, text;
-    if (!storageOk) { tone = 'bad'; text = 'Not saved on this device'; }
+    if (blocked) { tone = 'bad'; text = 'Not saved: newer plan on this device'; }
+    else if (!storageOk) { tone = 'bad'; text = 'Not saved on this device'; }
     else if (!state.touched) { tone = ''; text = 'Example plan'; }
     else { tone = 'ok'; text = 'Saved on this device ' + new Date(savedAt || Date.now()).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); }
     el.innerHTML = '<span class="chip ' + tone + '">' + esc(text) + '</span>';
@@ -1680,6 +1696,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     state.modifiedAt = now;
     state.lastSync = { at: now, kind: 'import', by: p.exportedBy || '' };
     banner = { kind: 'info', html: 'Imported the plan' + (p.exportedBy ? ' from ' + esc(p.exportedBy) : '') + '.' };
+    resetView();
     persist();
     renderAll();
   }
@@ -1754,6 +1771,14 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       lg.goal = lg.goal || newGoal();
       if (f === 'by') {
         var bmS = document.getElementById('gbm-' + id), byS = document.getElementById('gby-' + id);
+        if (bmS && byS) {
+          // A month on its own means its next occurrence after this month; clearing the year clears the date.
+          if (t === bmS && bmS.value && !byS.value) {
+            var now = new Date();
+            byS.value = String(now.getFullYear() + (parseInt(bmS.value, 10) > now.getMonth() + 1 ? 0 : 1));
+          }
+          if (t === byS && !byS.value) bmS.value = '';
+        }
         lg.goal.by = bmS && byS && bmS.value && byS.value ? byS.value + '-' + bmS.value : '';
         changed(); refresh(); return;
       }
@@ -1766,7 +1791,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     document.getElementById('editor').innerHTML = editorHTML(scn());
     refresh();
     window.scrollTo(0, y);
-    if (focusId) { var el = document.getElementById(focusId); if (el) el.focus(); }
+    // An id, or a list of them: the first that exists after the re-draw gets focus.
+    [].concat(focusId || []).some(function (id) { var el = document.getElementById(id); if (el) el.focus(); return !!el; });
   }
 
   root.addEventListener('click', function (e) {
@@ -1784,10 +1810,16 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       startCheckin(mSel.value, state.active); ciView = null; changed(); rerenderEditor('cia-0');
       return;
     }
-    if (act === 'ci-view') { ciView = b.getAttribute('data-id') || null; rerenderEditor(null); return; }
+    if (act === 'ci-view') {
+      // Opening a month moves focus to Close; closing returns it to that month's button, else to the form now shown.
+      var was = ciView;
+      ciView = b.getAttribute('data-id') || null;
+      rerenderEditor(ciView ? 'ci-close' : ['civ-' + was, 'ci-month', 'cia-0']);
+      return;
+    }
     if (act === 'ci-retake') {
       var cr = ciShown ? findCheckin(ciShown) : null;
-      if (cr) { retakeCheckin(cr, cr.scn); changed(); rerenderEditor(null); }
+      if (cr) { retakeCheckin(cr, cr.scn); changed(); rerenderEditor('ci-retake'); }
       return;
     }
     if (act === 'ci-del') {
@@ -1795,7 +1827,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       if (pendingCiDel === dm) {
         state.checkins = state.checkins.filter(function (x) { return x.month !== dm; });
         pendingCiDel = null; ciView = null; changed(); rerenderEditor(null);
-      } else { pendingCiDel = dm; rerenderEditor(null); }
+      } else { pendingCiDel = dm; rerenderEditor('ci-del'); }
       return;
     }
     if (act === 'tab') { state.active = b.getAttribute('data-id'); copyFallback = false; persist(); renderAll(); return; }
@@ -1852,7 +1884,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (act === 'reset') {
       if (pendingReset) {
         var keepSync = state.lastSync;
-        state = defaults(); state.lastSync = keepSync; pendingReset = false;
+        state = defaults(); state.lastSync = keepSync; pendingReset = false; resetView();
         persist(); renderAll();
       } else { pendingReset = true; renderFooter(); }
       return;
