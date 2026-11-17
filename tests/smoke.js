@@ -720,6 +720,149 @@ section('import-safety', async () => {
   await b.ctx.close();
 });
 
+// Two windows of the app on one device share localStorage. Opens both in one browser context.
+async function twoWindows(opts = {}) {
+  const { ctx, page: a } = await openPage(opts);
+  const b = await ctx.newPage();
+  watch(b, current);
+  if (opts.date) await b.clock.setFixedTime(new Date(opts.date));
+  await b.goto(APP_URL, { waitUntil: 'networkidle' });
+  return { ctx, a, b };
+}
+const rawPlan = (page) => page.evaluate((k) => localStorage.getItem(k), PLAN_KEY);
+const pagehide = (page) => page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false })));
+const until = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 3000 }).then(() => true, () => false);
+// Edits an amount and waits for the debounced save, so the window's pagehide would write its plan again.
+async function editAndSave(page, value) {
+  await page.locator(AMT).first().fill(value);
+  await until(page, ([k, v]) => (localStorage.getItem(k) || '').includes(`"amt":${v}`), [PLAN_KEY, value]);
+}
+
+section('two-windows', async () => {
+  const fx = JSON.parse(fs.readFileSync(FIXTURE_V1, 'utf8'));
+
+  // A check-in started in one window survives the other window's next edit and its pagehide.
+  let w = await twoWindows({ date: '2026-11-16T12:00' });
+  await editAndSave(w.b, '1111');
+  await w.b.click('[data-act="reset"]'); // armed: one more click would reset the plan
+  await w.a.click('[data-act="ci-start"]');
+  const saved = await until(w.a, (k) => { try { return JSON.parse(localStorage.getItem(k)).checkins.length === 1; } catch (e) { return false; } }, PLAN_KEY);
+  check('a check-in started in one window is saved', saved);
+  check('the other window shows it without a reload',
+    await until(w.b, () => document.querySelectorAll('input[data-scope="ci"][data-field="actual"]').length === 10));
+  check('the other window says it was updated', await bannerHas(w.b, 'Updated from another window'));
+  check('a click-twice confirm armed before the update is disarmed', !(await w.b.locator('#foot').innerText()).includes('Click again'));
+  await w.b.locator(AMT).first().fill('2222');
+  await pagehide(w.b);
+  const after = JSON.parse(await rawPlan(w.a));
+  check('an edit and pagehide in the other window keep the check-in', after.checkins.length === 1 && after.checkins[0].month === '2026-10',
+    `${after.checkins.length} check-ins stored`);
+  check('the first window then shows that edit', await until(w.a, (sel) => document.querySelector(sel).value === '2222', AMT));
+  await w.ctx.close();
+
+  // A newer app version in another window saved a newer plan: this window must stop saving, as on load.
+  w = await twoWindows({});
+  await editAndSave(w.b, '1111');
+  const newer = JSON.stringify(Object.assign({}, fx.state, { v: DATA_VERSION + 1 }));
+  await w.a.evaluate(([k, v]) => localStorage.setItem(k, v), [PLAN_KEY, newer]);
+  check('a newer plan saved in another window shows the newer-version message', await bannerHas(w.b, 'newer version'));
+  await w.b.locator(AMT).first().fill('2222');
+  await w.b.waitForTimeout(500);
+  await pagehide(w.b);
+  check('and this window never saves over it', (await rawPlan(w.b)) === newer);
+  await w.ctx.close();
+
+  // An older-format plan from another window goes through the same migration, and is not written back.
+  w = await twoWindows({});
+  await editAndSave(w.b, '1111');
+  const older = JSON.parse(JSON.stringify(fx.state));
+  older.scenarios[0].name = 'Saved by an older window';
+  const olderRaw = JSON.stringify(older);
+  await w.a.evaluate(([k, v]) => localStorage.setItem(k, v), [PLAN_KEY, olderRaw]);
+  check('a v1 plan saved in another window is migrated and shown',
+    await until(w.b, () => document.getElementById('tabs').innerText.includes('Saved by an older window')));
+  await w.b.waitForTimeout(500);
+  await pagehide(w.b);
+  check('the window that receives a change does not write it back', (await rawPlan(w.b)) === olderRaw);
+  await w.ctx.close();
+
+  // Something unreadable in storage: keep this window's plan and back the value up before it can be saved over.
+  w = await twoWindows({});
+  await editAndSave(w.b, '1111');
+  await w.a.evaluate((k) => localStorage.setItem(k, '{"broken":'), PLAN_KEY);
+  check('an unreadable value from another window is backed up',
+    await until(w.b, (k) => localStorage.getItem(k) === '{"broken":', BACKUP_KEY));
+  check('and this window keeps its own plan', (await firstAmount(w.b)) === '1111');
+  await w.ctx.close();
+});
+
+// A page restored from the back/forward cache must catch up with a plan another window saved while it was
+// away. Chromium delivers the storage event on restore; the app also re-reads on pageshow for engines that
+// might not, which the second run imitates by dropping storage events in the restored page. Playwright turns
+// the cache off and its headless shell has none, so this section starts full Chromium with the cache on.
+section('bfcache', async () => {
+  let bf;
+  try {
+    bf = await chromium.launch({ channel: 'chromium', ignoreDefaultArgs: ['--disable-back-forward-cache'] });
+  } catch (e) {
+    warn('back/forward cache', 'full Chromium is not installed (npx playwright install chromium); skipped');
+    return;
+  }
+  const opened = async (ctx, init) => {
+    const p = await ctx.newPage();
+    watch(p, current);
+    if (init) await p.addInitScript(init);
+    await p.clock.setFixedTime(new Date('2026-11-16T12:00'));
+    await p.goto(APP_URL, { waitUntil: 'networkidle' });
+    return p;
+  };
+  // Leaves the app for another page and comes back; true if the same document came back from the cache.
+  const awayAndBack = async (page, between) => {
+    await page.evaluate(() => { window.__sameDocument = true; });
+    await page.goto('data:text/html,<link rel="icon" href="data:,"><p>Another page'); // its own icon: no favicon request
+    if (between) await between();
+    await page.goBack({ waitUntil: 'commit' });
+    return page.evaluate(() => window.__sameDocument === true);
+  };
+  try {
+    for (const drop of [false, true]) {
+      const label = drop ? 'storage events lost' : 'storage events delivered';
+      const ctx = await bf.newContext({ viewport: { width: 1280, height: 900 } });
+      ctx.setDefaultTimeout(10000);
+      const a = await opened(ctx);
+      const b = await opened(ctx, drop ? () => {
+        addEventListener('storage', (e) => e.stopImmediatePropagation(), true);
+      } : null);
+      await editAndSave(b, '1111');
+      const noUpdateShown = async (name) => {
+        const back = await awayAndBack(b);
+        check(`${label}: ${name}`, back && !(await b.locator('#banner').innerText()).includes('Updated from another window'),
+          back ? 'shows "Updated from another window"' : 'not restored from the cache');
+      };
+      if (drop) await noUpdateShown('back with nothing changed shows no update');
+      const cached = await awayAndBack(b, async () => {
+        await a.click('[data-act="ci-start"]');
+        await until(a, (k) => { try { return JSON.parse(localStorage.getItem(k)).checkins.length === 1; } catch (e) { return false; } }, PLAN_KEY);
+      });
+      check(`${label}: the page comes back from the back/forward cache`, cached);
+      check(`${label}: it shows the check-in saved while it was away`,
+        await until(b, () => document.querySelectorAll('input[data-scope="ci"][data-field="actual"]').length === 10));
+      check(`${label}: and says it was updated`, await bannerHas(b, 'Updated from another window'));
+      if (drop) {
+        await b.click('[data-act="banner-close"]');
+        await noUpdateShown('back again with nothing new shows no second update');
+      }
+      await b.locator(AMT).first().fill('2222');
+      await pagehide(b);
+      const st = JSON.parse(await rawPlan(a));
+      check(`${label}: its next edit and pagehide keep the check-in`, st.checkins.length === 1, `${st.checkins.length} check-ins stored`);
+      await ctx.close();
+    }
+  } finally {
+    await bf.close();
+  }
+});
+
 /* ---------------- runner ---------------- */
 
 (async () => {

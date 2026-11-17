@@ -608,22 +608,27 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   // show the example plan, save nothing, and block export/import until a reload brings the new app.
   function tooNew(p) { return !!(p && typeof p === 'object' && typeof p.v === 'number' && p.v > DATA_V); }
 
-  var state = null;
-  var blocked = false;
-  var migratedOnLoad = false;
-  try {
-    var rawStored = lsGet(PLAN_KEY);
-    var stored = JSON.parse(rawStored || 'null');
-    if (tooNew(stored)) blocked = true;
-    else if (stored && stored.v === 1) {
-      // Keep the pre-upgrade plan on this device in case the upgrade itself ever has a bug.
-      var up = migrate(stored);
-      if (up) { if (!lsGet(BACKUP_KEY)) lsSet(BACKUP_KEY, rawStored); state = up; migratedOnLoad = true; }
-    } else if (validPlan(stored)) state = stored;
-  } catch (e) { state = null; }
-  // Something is stored but can't be read: keep a copy before anything can save over it.
-  if (!state && !blocked && rawStored && !lsGet(BACKUP_KEY)) lsSet(BACKUP_KEY, rawStored);
-  if (!state) state = defaults();
+  // Reads the stored plan's raw JSON, on load and when another window saves the plan.
+  // Returns { plan, newer, upgraded }: plan is a valid current plan (a v1 plan upgraded) or null.
+  // A copy of a plan that had to be upgraded, in case the upgrade itself ever has a bug, or of
+  // something stored that can't be read, goes to BACKUP_KEY (once) before anything can save over it.
+  function readStored(raw) {
+    var p = null, plan = null;
+    try {
+      p = JSON.parse(raw || 'null');
+      if (tooNew(p)) return { plan: null, newer: true, upgraded: false };
+      plan = p && p.v === 1 ? migrate(p) : (validPlan(p) ? p : null);
+    } catch (e) { plan = null; }
+    var upgraded = !!plan && p.v === 1;
+    if (raw && (upgraded || !plan) && !lsGet(BACKUP_KEY)) lsSet(BACKUP_KEY, raw);
+    return { plan: plan, newer: false, upgraded: upgraded };
+  }
+
+  var seenRaw = lsGet(PLAN_KEY); // the stored plan as this window last read or wrote it
+  var loaded = readStored(seenRaw);
+  var blocked = loaded.newer;
+  var migratedOnLoad = loaded.upgraded;
+  var state = loaded.plan || defaults();
   var deviceName = lsGet(NAME_KEY) || '';
   var savedAt = state.modifiedAt || 0;
   var storageOk = true;
@@ -648,8 +653,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   function persist() {
     if (blocked) return;
-    storageOk = lsSet(PLAN_KEY, JSON.stringify(state));
-    if (storageOk) savedAt = Date.now();
+    var json = JSON.stringify(state);
+    storageOk = lsSet(PLAN_KEY, json);
+    if (storageOk) { savedAt = Date.now(); seenRaw = json; }
     renderSaveStatus();
   }
 
@@ -1902,6 +1908,29 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   });
 
   window.addEventListener('pagehide', function () { if (saveTimer) { clearTimeout(saveTimer); persist(); } });
+
+  // Another window or tab on this device saved the plan. Switch to what is stored now, read as on load;
+  // otherwise this window's older copy would be written over it on the next edit here or on pagehide.
+  // Nothing is written back from here: this window next saves on its own next edit.
+  function syncFromStorage() {
+    var raw = lsGet(PLAN_KEY);
+    if (blocked || raw === seenRaw) return; // nothing new since this window last read or wrote it
+    seenRaw = raw;
+    var r = readStored(raw);
+    if (!r.plan && !r.newer) return; // removed or unreadable: keep this plan (readStored backed the value up)
+    clearTimeout(saveTimer); saveTimer = null; // drop an unsaved edit rather than save it over the other window's plan
+    if (r.newer) { blocked = true; banner = newerBanner(); renderBanner(); return; }
+    state = r.plan; savedAt = Date.now(); storageOk = true;
+    // Confirms armed and the check-in month picked here refer to the plan this window had.
+    pendingDelete = null; pendingDeleteCat = null; pendingCiDel = null; pendingReset = false;
+    if (ciView && !findCheckin(ciView)) ciView = null;
+    if (!banner || banner.kind !== 'import') banner = { kind: 'info', html: 'Updated from another window.' };
+    renderAll();
+    placeSpot(false);
+  }
+  window.addEventListener('storage', function (e) { if (e.key === PLAN_KEY) syncFromStorage(); });
+  // A page restored from the back/forward cache may not have been told about saves made while it was away.
+  window.addEventListener('pageshow', function (e) { if (e.persisted) syncFromStorage(); });
 
   renderAll();
 
