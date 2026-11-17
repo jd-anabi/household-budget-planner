@@ -265,7 +265,8 @@ States:
 - **Due:** neither the previous nor the current calendar month has a check-in. The card shows
   "October check-in" with a "Start" button and a month select (previous month, the default, or
   the current month; never a month at or before the latest check-in, so no back-filling).
-  The summary's status area also shows a chip "October check-in not done".
+  Once the plan has been edited or imported (not on the untouched example plan), the summary's
+  status area also shows a chip "October check-in not done".
 - **In progress / done:** the latest check-in is shown as a form (below). It is "done" when every
   spend row has an actual; otherwise it shows "3 of 9 entered". (Goal rows always hold a value.)
 - **History:** below the form, a list of earlier months ("September · $40 over plan"). Each opens
@@ -431,8 +432,9 @@ with its balance and the status chip above.
 balance; `months` = months since the previous check-in with fund data, or for the first one months
 since the base month (0 for last month); `planned` = $c$;
 `due` = total of dated bills due in the covered months; pre-filled
-`balance = start + planned × months − due`, `assumed: true`. Re-taking snapshots and deleting work
-as for goals.
+`balance = max(0, start + planned × months − due)` (a bill bigger than the fund empties it; checking
+pays the rest), `assumed: true`. Re-taking snapshots and deleting work as for goals; a re-take keeps
+the row's `start` and `months` and recounts `due` over those months.
 
 ### 6. Tour
 

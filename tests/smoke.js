@@ -214,6 +214,30 @@ section('layout', async () => {
   }
   check('dark theme applies', background['phone-light'] !== background['phone-dark'],
     `light ${background['phone-light']}, dark ${background['phone-dark']}`);
+
+  // Card heads with a description keep their total or count where the group cards keep theirs:
+  // top right beside the title on wide screens, under the description on a phone.
+  for (const width of [1280, 700, 390]) {
+    const { ctx, page } = await openPage({ viewport: { width, height: 900 } });
+    const heads = await page.evaluate(() => ['need', 'yearly', 'categories'].map((t) => {
+      const h = document.querySelector(`[data-tour="${t}"] .card-head`);
+      const title = h.querySelector('h2').getBoundingClientRect(), aside = h.lastElementChild.getBoundingClientRect(), r = h.getBoundingClientRect();
+      return { t, beside: aside.top < title.bottom, gap: Math.round(r.right - aside.right) };
+    }));
+    const need = heads[0];
+    const bad = heads.filter((x) => x.beside !== need.beside || (x.beside && x.gap > 1));
+    check(`${width}px: the yearly and category card heads lay out like the group cards`, bad.length === 0, JSON.stringify(heads));
+    await ctx.close();
+  }
+
+  // A select can't wrap its text, so a long scenario name in "Compared with" must not widen the page.
+  const ph = await openPage({ viewport: { width: 390, height: 844 }, date: '2026-11-16T12:00' });
+  const long = 'Both of us working full time, paying rent and saving for a new car too';
+  await ph.page.fill('#scn-name', long);
+  await ph.page.click('[data-act="ci-start"]');
+  const wide = await ph.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  check(`a ${long.length}-character scenario name in "Compared with" fits a 390px screen`, wide <= 0, `${wide}px too wide`);
+  await ph.ctx.close();
 });
 
 section('guard', async () => {
@@ -221,9 +245,17 @@ section('guard', async () => {
   const newer = JSON.stringify(Object.assign({}, fx.state, { v: DATA_VERSION + 1 }));
   const { ctx, page } = await openPage({ storage: { [PLAN_KEY]: newer }, acceptDownloads: true });
   check('newer stored plan shows the newer-version banner', (await page.locator('#banner').innerText()).includes('newer version'));
+  const saveChip = () => page.evaluate(() => { const c = document.querySelector('#save-status .chip'); return { cls: c.className, text: c.textContent }; });
+  const notSaved = (c) => c.cls.split(' ').includes('bad') && c.text === 'Not saved: newer plan on this device';
+  const onOpen = await saveChip();
+  check('while a newer plan is stored, the save chip says nothing is saved', notSaved(onOpen), JSON.stringify(onOpen));
   await page.locator(AMT).first().fill('999');
   await page.waitForTimeout(800);
   check('newer stored plan is never overwritten', (await page.evaluate((k) => localStorage.getItem(k), PLAN_KEY)) === newer);
+  const afterEdit = await saveChip();
+  const sharing = await cardText(page, 'sharing');
+  check('after an edit it still says nothing is saved, in the header and the sharing card',
+    notSaved(afterEdit) && !sharing.includes('Saved on this device'), JSON.stringify(afterEdit) + ' | ' + sharing.slice(0, 80));
   const dl = await Promise.all([
     page.waitForEvent('download', { timeout: 1500 }).then(() => true, () => false),
     page.locator('[data-act="export"]').first().click(),
@@ -336,7 +368,10 @@ section('checkin', async () => {
   const { ctx, page } = await openPage({ date: '2026-11-16T12:00' });
   const head = () => page.locator('[data-tour="checkin"] h2').innerText();
   check('a due check-in names last month', (await head()).includes('October check-in'), await head());
-  check('the summary says the check-in is not done', (await page.locator('#summary').innerText()).includes('October check-in not done'));
+  const summary = () => page.locator('#summary').innerText();
+  check('the untouched example plan doesn’t say a check-in is due', !(await summary()).includes('check-in not done'), await summary());
+  await page.fill('#ao-jchk', 'Shared bills and rent'); // any edit makes it your plan
+  check('once the plan is edited, the summary says the check-in is not done', (await summary()).includes('October check-in not done'));
 
   await page.click('[data-act="ci-start"]');
   const actual = 'input[data-scope="ci"][data-field="actual"]';
@@ -407,6 +442,21 @@ section('goals', async () => {
   const gl = await page.locator(`[data-goal="${mv}"]`).innerText();
   check('a goal shows one projected date, from the same month as its status',
     gl.includes('around Jan 2028') && !gl.includes('Feb 2028') && !gl.includes('At $400 a month'), gl);
+  // Choosing only a month means its next occurrence (today is 16 Nov 2026); clearing the year clears the date.
+  const fun = await lineId(page, 'Fun & vacation');
+  const by = () => page.evaluate((id) => {
+    const s = window.__hbp.state(); const l = s.scenarios.find((x) => x.id === s.active).lines.find((x) => x.id === id);
+    return [l.goal.by, document.getElementById('gbm-' + id).value, document.getElementById('gby-' + id).value].join('|');
+  }, fun);
+  await page.selectOption(`#gbm-${fun}`, '06');
+  const jun = await by();
+  await page.selectOption(`#gby-${fun}`, '');
+  const cleared = await by();
+  await page.selectOption(`#gbm-${fun}`, '12');
+  const dec = await by();
+  check('a By month without a year takes the next one (Jun → 2027, Dec → 2026)', jun === '2027-06|06|2027' && dec === '2026-12|12|2026', `${jun} / ${dec}`);
+  check('clearing the By year clears the date and its month', cleared === '||', cleared);
+
   await page.click('[data-act="ci-start"]');
   const ciChip = await page.locator(`[data-out="cigs-${mv}"] .chip`).innerText();
   check('a goal on an unconfirmed check-in balance is marked assumed', ciChip.endsWith('(assumed)'), ciChip);
@@ -458,6 +508,17 @@ section('yearly', async () => {
   const tr2 = rows.find((r) => r.name === 'Transportation');
   check('with the fund off, yearly costs are back in the limits at 1/12', tr2 && tr2.amt === '$200 / mo' && tr2.text.includes('includes yearly costs at 1/12'), JSON.stringify(tr2));
   await ctx.close();
+
+  // A bill bigger than what's in the fund leaves it at $0 (the rest is paid from checking), never at a negative balance.
+  const d = await openPage({ date: '2026-12-10T12:00' });
+  await d.page.selectOption('#ci-month', '2026-12'); // the $800 December bill, $117 set aside, nothing saved yet
+  await d.page.click('[data-act="ci-start"]');
+  const fb = () => d.page.evaluate(() => window.__hbp.state().checkins[0].fund.balance);
+  const started = await fb();
+  await d.page.click('[data-act="ci-retake"]');
+  const retaken = await fb();
+  check('a fund pre-fill never stores a negative balance', started === 0 && retaken === 0, JSON.stringify({ started, retaken }));
+  await d.ctx.close();
 });
 
 // Waits until the current tour step's target is on screen and outlined (or the step has no target).
@@ -531,6 +592,83 @@ section('retake', async () => {
   check('switching "Compared with" and back keeps a typed balance', !!row && row.balance === 999 && row.assumed === false, JSON.stringify(row));
   check('"Saved so far" keeps the typed balance after switching back', (await page.inputValue(`#gs-${mv}`)) === '999');
   await ctx.close();
+
+  // Re-taking keeps the fund row's months, so the bills due must be counted over those same months,
+  // even after the earlier check-in it was counted from is deleted.
+  const b = await openPage({ date: '2026-11-16T12:00' });
+  await b.page.fill('#fund-bal', '1000');
+  await b.page.click('[data-act="ci-start"]'); // October
+  await b.page.waitForTimeout(500);
+  await b.page.clock.setFixedTime(new Date('2027-01-05T12:00'));
+  await b.page.reload({ waitUntil: 'networkidle' });
+  await b.page.click('[data-act="ci-start"]'); // December: November and December since October, with the $800 December bill
+  const dec = () => b.page.evaluate(() => { const f = window.__hbp.state().checkins.find((x) => x.month === '2026-12').fund; return { months: f.months, due: f.due, balance: f.balance }; });
+  const started = await dec();
+  await b.page.click('[data-act="ci-view"][data-id="2026-10"]');
+  await b.page.click('[data-act="ci-del"]');
+  await b.page.click('[data-act="ci-del"]');
+  await b.page.click('[data-act="ci-retake"]');
+  const retaken = await dec();
+  check('re-taking a check-in counts fund bills over its own months', started.months === 2 && started.due === 800 && started.balance === 433 &&
+    isDeepStrictEqual(retaken, started), JSON.stringify({ started, retaken }));
+  await b.ctx.close();
+});
+
+// Check-in buttons that re-draw the card keep keyboard focus on a sensible control instead of dropping it to the page.
+section('focus', async () => {
+  const { ctx, page } = await openPage({ date: '2026-11-16T12:00' });
+  const focused = () => page.evaluate(() => { const a = document.activeElement; return { act: a.dataset.act || a.tagName, id: a.dataset.id, text: a.textContent.trim().slice(0, 60) }; });
+  const press = async (sel) => { await page.locator(sel).focus(); await page.keyboard.press('Enter'); return focused(); };
+  await page.click('[data-act="ci-start"]'); // October
+  const del = await press('[data-act="ci-del"]');
+  check('after the first "Delete this check-in", focus stays on the armed button', del.act === 'ci-del' && del.text === 'Click again to delete this check-in', JSON.stringify(del));
+  const re = await press('[data-act="ci-retake"]');
+  check('after "Use current plan amounts", focus stays on it', re.act === 'ci-retake', JSON.stringify(re));
+  await page.waitForTimeout(500);
+
+  await page.clock.setFixedTime(new Date('2026-12-05T12:00'));
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.click('[data-act="ci-start"]'); // November; October is now in the history
+  const open = await press('[data-act="ci-view"][data-id="2026-10"]');
+  check('choosing a month in the history moves focus to Close', open.act === 'ci-view' && open.id === '' && (await cardText(page, 'checkin')).includes('October check-in'), JSON.stringify(open));
+  const back = await press('[data-act="ci-view"][data-id=""]');
+  check('Close returns focus to that month in the history', back.act === 'ci-view' && back.id === '2026-10', JSON.stringify(back));
+  // Open October, then November (the latest) from the history, then Close: November is the default view again,
+  // so it has no history button; focus goes to the form now shown.
+  await press('[data-act="ci-view"][data-id="2026-10"]');
+  await press('[data-act="ci-view"][data-id="2026-11"]');
+  await press('[data-act="ci-view"][data-id=""]');
+  const fallback = await page.evaluate(() => document.activeElement.id);
+  check('closing the latest month moves focus to its form', fallback === 'cia-0', fallback);
+  await ctx.close();
+});
+
+// A month opened from the check-in history belongs to the plan it came from: import and reset close it.
+section('resets', async () => {
+  const viewingOctober = async () => {
+    const o = await openPage({ date: '2026-11-16T12:00' });
+    await o.page.click('[data-act="ci-start"]'); // October
+    await o.page.waitForTimeout(500);
+    await o.page.clock.setFixedTime(new Date('2026-12-05T12:00'));
+    await o.page.reload({ waitUntil: 'networkidle' });
+    await o.page.click('[data-act="ci-view"][data-id="2026-10"]');
+    return o;
+  };
+  const histButtons = (page) => page.$$eval('[data-act="ci-view"]', (els) => els.map((e) => e.textContent.trim()));
+
+  const a = await viewingOctober();
+  await a.page.click('[data-act="reset"]');
+  await a.page.click('[data-act="reset"]');
+  const afterReset = await histButtons(a.page);
+  check('"Reset to example plan" closes a month opened from the history', afterReset.length === 0, JSON.stringify(afterReset));
+  await a.ctx.close();
+
+  const b = await viewingOctober();
+  await b.page.setInputFiles('#import-file', FIXTURE_V1);
+  await b.page.click('[data-act="import-confirm"]');
+  const afterImport = await histButtons(b.page);
+  check('importing a plan closes a month opened from the history', afterImport.length === 0, JSON.stringify(afterImport));
+  await b.ctx.close();
 });
 
 section('first-checkin', async () => {
