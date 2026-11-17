@@ -1919,11 +1919,10 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     var r = readStored(raw);
     if (!r.plan && !r.newer) return; // removed or unreadable: keep this plan (readStored backed the value up)
     clearTimeout(saveTimer); saveTimer = null; // drop an unsaved edit rather than save it over the other window's plan
-    if (r.newer) { blocked = true; banner = newerBanner(); renderBanner(); return; }
+    if (r.newer) { blocked = true; banner = newerBanner(); refresh(); renderBanner(); return; }
     state = r.plan; savedAt = Date.now(); storageOk = true;
-    // Confirms armed and the check-in month picked here refer to the plan this window had.
-    pendingDelete = null; pendingDeleteCat = null; pendingCiDel = null; pendingReset = false;
-    if (ciView && !findCheckin(ciView)) ciView = null;
+    // As after an import: confirms armed and the check-in month picked here referred to the plan this window had.
+    resetView(); pendingReset = false;
     if (!banner || banner.kind !== 'import') banner = { kind: 'info', html: 'Updated from another window.' };
     renderAll();
     placeSpot(false);
