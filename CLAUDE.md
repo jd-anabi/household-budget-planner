@@ -78,6 +78,7 @@ per-transaction tracking.
   account; the 12-month projection is F_k = B + k·c − Σ bills due; shortfall S = max(0, −min F_k).
   Honeydue limits then leave yearly lines out. A check-in plans a dated yearly line in full in its due
   month and at 0 in other months (spread lines at 1/12).
+  A check-in's fund row is pre-filled as max(0, start + c × months − bills due in those months).
 - Transfer plan: paychecks land in `depositTo`; every other account receives the sum of lines
   assigned to it (plus the fund share for the fund account); the rest stays in the landing account.
 - Tour: `household-budget-planner:tour-seen` in localStorage, per device, not exported.
