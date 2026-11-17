@@ -766,6 +766,10 @@ section('two-windows', async () => {
   const newer = JSON.stringify(Object.assign({}, fx.state, { v: DATA_VERSION + 1 }));
   await w.a.evaluate(([k, v]) => localStorage.setItem(k, v), [PLAN_KEY, newer]);
   check('a newer plan saved in another window shows the newer-version message', await bannerHas(w.b, 'newer version'));
+  const status = await w.b.locator('#save-status').innerText();
+  const side = await w.b.locator('.sync-meta').innerText();
+  check('and the save status says this window no longer saves', status.includes('Not saved: newer plan') && side.includes('Not saved: a newer plan'),
+    `${status} | ${side.split('\n')[0]}`);
   await w.b.locator(AMT).first().fill('2222');
   await w.b.waitForTimeout(500);
   await pagehide(w.b);
