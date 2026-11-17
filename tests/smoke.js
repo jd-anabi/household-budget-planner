@@ -658,6 +658,73 @@ section('two-windows', async () => {
   await w.ctx.close();
 });
 
+// A page restored from the back/forward cache must catch up with a plan another window saved while it was
+// away. Chromium delivers the storage event on restore; the app also re-reads on pageshow for engines that
+// might not, which the second run imitates by dropping storage events in the restored page. Playwright turns
+// the cache off and its headless shell has none, so this section starts full Chromium with the cache on.
+section('bfcache', async () => {
+  let bf;
+  try {
+    bf = await chromium.launch({ channel: 'chromium', ignoreDefaultArgs: ['--disable-back-forward-cache'] });
+  } catch (e) {
+    warn('back/forward cache', 'full Chromium is not installed (npx playwright install chromium); skipped');
+    return;
+  }
+  const opened = async (ctx, init) => {
+    const p = await ctx.newPage();
+    watch(p, current);
+    if (init) await p.addInitScript(init);
+    await p.clock.setFixedTime(new Date('2026-11-16T12:00'));
+    await p.goto(APP_URL, { waitUntil: 'networkidle' });
+    return p;
+  };
+  // Leaves the app for another page and comes back; true if the same document came back from the cache.
+  const awayAndBack = async (page, between) => {
+    await page.evaluate(() => { window.__sameDocument = true; });
+    await page.goto('data:text/html,<link rel="icon" href="data:,"><p>Another page'); // its own icon: no favicon request
+    if (between) await between();
+    await page.goBack({ waitUntil: 'commit' });
+    return page.evaluate(() => window.__sameDocument === true);
+  };
+  try {
+    for (const drop of [false, true]) {
+      const label = drop ? 'storage events lost' : 'storage events delivered';
+      const ctx = await bf.newContext({ viewport: { width: 1280, height: 900 } });
+      ctx.setDefaultTimeout(10000);
+      const a = await opened(ctx);
+      const b = await opened(ctx, drop ? () => {
+        addEventListener('storage', (e) => e.stopImmediatePropagation(), true);
+      } : null);
+      await editAndSave(b, '1111');
+      const noUpdateShown = async (name) => {
+        const back = await awayAndBack(b);
+        check(`${label}: ${name}`, back && !(await b.locator('#banner').innerText()).includes('Updated from another window'),
+          back ? 'shows "Updated from another window"' : 'not restored from the cache');
+      };
+      if (drop) await noUpdateShown('back with nothing changed shows no update');
+      const cached = await awayAndBack(b, async () => {
+        await a.click('[data-act="ci-start"]');
+        await until(a, (k) => { try { return JSON.parse(localStorage.getItem(k)).checkins.length === 1; } catch (e) { return false; } }, PLAN_KEY);
+      });
+      check(`${label}: the page comes back from the back/forward cache`, cached);
+      check(`${label}: it shows the check-in saved while it was away`,
+        await until(b, () => document.querySelectorAll('input[data-scope="ci"][data-field="actual"]').length === 10));
+      check(`${label}: and says it was updated`, await bannerHas(b, 'Updated from another window'));
+      if (drop) {
+        await b.click('[data-act="banner-close"]');
+        await noUpdateShown('back again with nothing new shows no second update');
+      }
+      await b.locator(AMT).first().fill('2222');
+      await pagehide(b);
+      const st = JSON.parse(await rawPlan(a));
+      check(`${label}: its next edit and pagehide keep the check-in`, st.checkins.length === 1, `${st.checkins.length} check-ins stored`);
+      await ctx.close();
+    }
+  } finally {
+    await bf.close();
+  }
+});
+
 /* ---------------- runner ---------------- */
 
 (async () => {

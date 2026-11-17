@@ -56,10 +56,11 @@ per-transaction tracking.
 
 - Saved to `localStorage` key `household-budget-planner:plan:v1` on every edit (debounced). The key
   name is an address, not the data version.
-- Several windows on one device: when another window saves the plan (the `storage` event), this one
-  reloads it through `readStored()`, the same path as on load (upgrade, newer-version guard, backup),
-  drops its own pending save and re-renders. It never writes back from that handler, or two windows would
-  overwrite each other.
+- Several windows on one device: when another window saves the plan (the `storage` event, or `pageshow`
+  after a back/forward-cache restore, in case an engine drops events for cached pages), this one reloads
+  what is stored through `readStored()`, the same path as on load (upgrade, newer-version guard, backup),
+  drops its own pending save and re-renders. It skips a value equal to `seenRaw`, the one it last read or
+  wrote. It never writes back from that handler, or two windows would overwrite each other.
 - Export file: `{ app: 'household-budget-planner', v: 2, exportedAt, exportedBy, state }`, named
   `budget-plan-YYYY-MM-DD.json`. On touch devices it uses the share sheet; otherwise a download.
   Import validates, then asks before replacing the device's plan.
@@ -113,7 +114,9 @@ below (for the current data version only), no horizontal scroll at laptop and 39
 no console errors; it exits non-zero on failure. It can't judge legibility, so look at the screenshots too.
 If you bump `v`, update `DATA_VERSION` in the test and add a check that an older plan file still imports.
 Run part of it with `ONLY=checkin,yearly node tests/smoke.js`. Sections that depend on the date fix it
-with `openPage({ date: '2026-11-16T12:00' })`.
+with `openPage({ date: '2026-11-16T12:00' })`. The `bfcache` section launches full Chromium with the
+back/forward cache on (Playwright turns it off, and its headless shell has none); without full Chromium
+it warns and skips.
 
 1. `python3 -m http.server 8000` in the repo, open http://localhost:8000.
 2. Check a laptop width and a phone width (~390px), light and dark.

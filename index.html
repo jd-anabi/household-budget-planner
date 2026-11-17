@@ -620,7 +620,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     return { plan: plan, newer: false, upgraded: upgraded };
   }
 
-  var loaded = readStored(lsGet(PLAN_KEY));
+  var seenRaw = lsGet(PLAN_KEY); // the stored plan as this window last read or wrote it
+  var loaded = readStored(seenRaw);
   var blocked = loaded.newer;
   var migratedOnLoad = loaded.upgraded;
   var state = loaded.plan || defaults();
@@ -646,8 +647,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   function persist() {
     if (blocked) return;
-    storageOk = lsSet(PLAN_KEY, JSON.stringify(state));
-    if (storageOk) savedAt = Date.now();
+    var json = JSON.stringify(state);
+    storageOk = lsSet(PLAN_KEY, json);
+    if (storageOk) { savedAt = Date.now(); seenRaw = json; }
     renderSaveStatus();
   }
 
@@ -1875,12 +1877,14 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   window.addEventListener('pagehide', function () { if (saveTimer) { clearTimeout(saveTimer); persist(); } });
 
-  // Another window or tab on this device saved the plan. Switch to what it saved, read as on load;
+  // Another window or tab on this device saved the plan. Switch to what is stored now, read as on load;
   // otherwise this window's older copy would be written over it on the next edit here or on pagehide.
   // Nothing is written back from here: this window next saves on its own next edit.
-  window.addEventListener('storage', function (e) {
-    if (e.key !== PLAN_KEY || blocked) return;
-    var r = readStored(e.newValue);
+  function syncFromStorage() {
+    var raw = lsGet(PLAN_KEY);
+    if (blocked || raw === seenRaw) return; // nothing new since this window last read or wrote it
+    seenRaw = raw;
+    var r = readStored(raw);
     if (!r.plan && !r.newer) return; // removed or unreadable: keep this plan (readStored backed the value up)
     clearTimeout(saveTimer); saveTimer = null; // drop an unsaved edit rather than save it over the other window's plan
     if (r.newer) { blocked = true; banner = newerBanner(); renderBanner(); return; }
@@ -1891,7 +1895,10 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (!banner || banner.kind !== 'import') banner = { kind: 'info', html: 'Updated from another window.' };
     renderAll();
     placeSpot(false);
-  });
+  }
+  window.addEventListener('storage', function (e) { if (e.key === PLAN_KEY) syncFromStorage(); });
+  // A page restored from the back/forward cache may not have been told about saves made while it was away.
+  window.addEventListener('pageshow', function (e) { if (e.persisted) syncFromStorage(); });
 
   renderAll();
 
