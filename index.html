@@ -153,6 +153,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focu
 .tab .tab-n { font-weight: 500; font-size: 12px; color: var(--ink-3); }
 .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
 .tab:hover { color: var(--ink); }
+.tab-item { display: inline-flex; align-items: center; }
+.tab-del { flex: none; margin-left: -6px; }
+.tab-del.btn { padding: 4px 8px; font-size: 13px; }
 
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; display: flex; flex-direction: column; gap: 14px; }
 .card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
@@ -1045,13 +1048,18 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   function renderTabs() {
     var el = document.getElementById('tabs'); if (!el) return;
-    var h = '';
+    var h = '', many = state.scenarios.length > 1;
     state.scenarios.forEach(function (s) {
-      var c = calc(s);
-      h += '<button class="tab" role="tab" type="button" data-act="tab" data-id="' + esc(s.id) + '" aria-selected="' + (s.id === state.active) + '">' +
-        esc(s.name || 'Untitled') + '<span class="tab-n">' + money(c.I) + ' in · ' + money(c.P) + ' planned</span></button>';
+      var c = calc(s), name = esc(s.name || 'Untitled'), asking = pendingDelete === s.id;
+      var del = asking ? 'Click again to delete the scenario ' + name : 'Delete the scenario ' + name;
+      h += '<span class="tab-item"><button class="tab" role="tab" type="button" data-act="tab" data-id="' + esc(s.id) + '" aria-selected="' + (s.id === state.active) + '">' +
+        name + '<span class="tab-n">' + money(c.I) + ' in · ' + money(c.P) + ' planned</span></button>' +
+        // Any scenario can be deleted from its tab (clicked twice), except the last one.
+        (many ? '<button class="' + (asking ? 'btn ghost danger' : 'icon') + ' tab-del" type="button" data-act="del-scn" data-id="' + esc(s.id) + '" aria-label="' + del + '" title="' + del + '">' +
+          (asking ? 'Delete?' : '×') + '</button>' : '') + '</span>';
     });
-    h += '<button class="btn ghost" type="button" data-act="copy-scn">+ Copy this scenario</button>';
+    h += '<button class="btn ghost" type="button" data-act="new-scn">+ New scenario</button>' +
+      '<button class="btn ghost" type="button" data-act="copy-scn">+ Copy this scenario</button>';
     el.innerHTML = h;
   }
 
@@ -1112,7 +1120,6 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     });
     h += '</div><div class="actions">' +
       '<button class="btn ghost add" type="button" data-act="add-inc">+ Add income</button>' +
-      (state.scenarios.length > 1 ? '<button class="btn ghost danger" type="button" data-act="del-scn">' + (pendingDelete === s.id ? 'Click again to delete this scenario' : 'Delete this scenario') + '</button>' : '') +
       '</div></section>';
 
     GROUPS.forEach(function (G) {
@@ -1792,6 +1799,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     }
   });
 
+  // Ids are checked to be selector-safe (okId) when a plan is loaded or imported.
+  function focusIn(sel) { var el = root.querySelector(sel); if (el) el.focus(); }
+
   function rerenderEditor(focusId) {
     var y = window.scrollY;
     document.getElementById('editor').innerHTML = editorHTML(scn());
@@ -1879,12 +1889,25 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       var sn = document.getElementById('scn-name'); if (sn) { sn.focus(); sn.select(); }
       return;
     }
+    if (act === 'new-scn') {
+      var ns = { id: nid(), name: 'New scenario', sub: '', depositTo: s.depositTo, incomes: [], lines: [] };
+      state.scenarios.push(ns); state.active = ns.id;
+      changed(); renderAll();
+      var nn = document.getElementById('scn-name'); if (nn) { nn.focus(); nn.select(); }
+      return;
+    }
     if (act === 'del-scn') {
-      if (state.scenarios.length < 2) return;
-      if (pendingDelete === s.id) {
-        state.scenarios = state.scenarios.filter(function (x) { return x.id !== s.id; });
-        state.active = state.scenarios[0].id; pendingDelete = null; changed(); renderAll();
-      } else { pendingDelete = s.id; rerenderEditor(null); }
+      var sid = b.getAttribute('data-id');
+      if (state.scenarios.length < 2 || !findScn(sid)) return;
+      if (pendingDelete === sid) {
+        state.scenarios = state.scenarios.filter(function (x) { return x.id !== sid; });
+        if (state.active === sid) state.active = state.scenarios[0].id;
+        pendingDelete = null; changed(); renderAll();
+        focusIn('[data-act="tab"][data-id="' + state.active + '"]');
+      } else {
+        pendingDelete = sid; renderTabs();
+        focusIn('[data-act="del-scn"][data-id="' + sid + '"]');
+      }
       return;
     }
     if (act === 'reset') {
@@ -1938,7 +1961,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     { sel: null, title: 'Welcome to your budget planner',
       text: 'This app plans your month; Honeydue tracks it day to day. This tour shows what each part tells you and what to do with it. Use the arrow keys or the buttons; Close ends it any time.' },
     { sel: '[data-tour="scenarios"]', title: 'Scenarios',
-      text: 'Each tab is a version of your plan, like now and after you both work and pay rent. Switch tabs to edit one, or copy a tab to try a change without touching the original.' },
+      text: 'Each tab is a version of your plan, like now and after you both work and pay rent. Switch tabs to edit one, copy a tab to try a change without touching the original, or start a new one from scratch. The × on a tab deletes it.' },
     { sel: '[data-tour="summary"]', title: 'Where the money goes',
       text: 'Take-home pay split into necessities, savings and variable spending, with what’s left to assign. The ticks mark the 50/30/20 rule of thumb: a reference point, not a target.' },
     { sel: '[data-tour="checkin"]', title: 'Monthly check-in',

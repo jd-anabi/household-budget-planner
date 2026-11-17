@@ -99,6 +99,8 @@ per-transaction tracking.
 - `window.__hbp` exposes read-only helpers (migration, month maths, statuses, projection) for the tests.
 - Events are delegated on `#root`: inputs carry `data-scope` / `data-id` / `data-field`, buttons carry `data-act`.
 - Destructive actions use a click-twice confirm, not `confirm()`.
+- Scenarios are managed from the tab row: "+ New scenario" (blank: no incomes or lines), "+ Copy this scenario",
+  and a × on each tab that deletes that scenario (click twice; hidden when only one is left).
 
 ## Design
 

@@ -410,8 +410,8 @@ section('checkin', async () => {
   const groc = await catId(page, 'Groceries');
   await page.click(`[data-act="del-cat"][data-id="${groc}"]`);
   await page.click(`[data-act="del-cat"][data-id="${groc}"]`);
-  await page.click('[data-act="del-scn"]');
-  await page.click('[data-act="del-scn"]');
+  await page.click('[data-act="del-scn"][data-id="now"]');
+  await page.click('[data-act="del-scn"][data-id="now"]');
   await page.click('[data-act="ci-view"][data-id="2026-10"]');
   const oct = await cardText(page, 'checkin');
   check('an old check-in still shows a deleted category and scenario', oct.includes('Groceries') && oct.includes('Now'), oct.slice(0, 200));
@@ -718,6 +718,53 @@ section('import-safety', async () => {
   check('a stored plan the app cannot read is backed up before anything can overwrite it',
     (await b.page.evaluate((k) => localStorage.getItem(k), BACKUP_KEY)) === broken);
   await b.ctx.close();
+});
+
+section('scenarios', async () => {
+  const { ctx, page } = await openPage({});
+  const st = () => page.evaluate(() => window.__hbp.state());
+  const ids = async () => (await st()).scenarios.map((x) => x.id).join();
+  const del = (id) => page.locator(`[data-act="del-scn"][data-id="${id}"]`);
+
+  await page.click('[data-act="new-scn"]');
+  let s = await st();
+  const fresh = s.scenarios[s.scenarios.length - 1];
+  check('"+ New scenario" adds a blank scenario and opens it',
+    s.scenarios.length === 3 && s.active === fresh.id && fresh.name === 'New scenario' && fresh.incomes.length === 0 && fresh.lines.length === 0,
+    JSON.stringify({ n: s.scenarios.length, active: s.active, name: fresh.name, incomes: fresh.incomes.length, lines: fresh.lines.length }));
+  check('and puts the cursor in its name', (await page.evaluate(() => document.activeElement.id)) === 'scn-name');
+  check('a blank scenario shows no NaN or Infinity', !/NaN|Infinity/.test(await page.locator('#root').innerText()));
+
+  await del('later').click();
+  check('one click on a tab’s × only asks', (await ids()) === `now,later,${fresh.id}` && (await del('later').innerText()) === 'Delete?',
+    `${await ids()} | ${await del('later').innerText()}`);
+  check('the asking button keeps focus', (await page.evaluate(() => document.activeElement.dataset.id)) === 'later');
+  await del('later').click();
+  s = await st();
+  check('a second click deletes that scenario without leaving the open one', (await ids()) === `now,${fresh.id}` && s.active === fresh.id);
+
+  await del('now').click();
+  await del(fresh.id).click();
+  check('clicking another tab’s × asks about that one instead of deleting it',
+    (await ids()) === `now,${fresh.id}` && (await del(fresh.id).innerText()) === 'Delete?' && (await del('now').innerText()) !== 'Delete?');
+  await del(fresh.id).click();
+  s = await st();
+  const focus = await page.evaluate(() => ({ act: document.activeElement.dataset.act, id: document.activeElement.dataset.id }));
+  check('deleting the open scenario opens another and focuses its tab',
+    s.scenarios.length === 1 && s.active === 'now' && focus.act === 'tab' && focus.id === 'now', JSON.stringify({ active: s.active, focus }));
+  check('the last scenario cannot be deleted', (await page.locator('[data-act="del-scn"]').count()) === 0);
+  check('deleting is saved', await until(page, (k) => { try { return JSON.parse(localStorage.getItem(k)).scenarios.length === 1; } catch (e) { return false; } }, PLAN_KEY));
+  await ctx.close();
+
+  for (const scheme of ['light', 'dark']) {
+    const ph = await openPage({ viewport: { width: 390, height: 844 }, colorScheme: scheme });
+    for (let i = 0; i < 3; i++) await ph.page.click('[data-act="new-scn"]');
+    await ph.page.locator('[data-act="del-scn"]').nth(1).click();
+    const overflow = await ph.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    check(`five scenarios fit a 390px screen (${scheme})`, overflow <= 0, `${overflow}px too wide`);
+    if (SHOTS) await ph.page.locator('#tabs').screenshot({ path: path.join(SHOTS, `phone-scenarios-${scheme}.png`) });
+    await ph.ctx.close();
+  }
 });
 
 // Two windows of the app on one device share localStorage. Opens both in one browser context.
