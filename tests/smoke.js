@@ -225,14 +225,14 @@ section('layout', async () => {
   // top right beside the title on wide screens, under the description on a phone.
   for (const width of [1280, 700, 390]) {
     const { ctx, page } = await openPage({ viewport: { width, height: 900 } });
-    const heads = await page.evaluate(() => ['need', 'yearly', 'categories'].map((t) => {
+    const heads = await page.evaluate(() => ['need', 'yearly', 'categories', 'people'].map((t) => {
       const h = document.querySelector(`[data-tour="${t}"] .card-head`);
       const title = h.querySelector('h2').getBoundingClientRect(), aside = h.lastElementChild.getBoundingClientRect(), r = h.getBoundingClientRect();
       return { t, beside: aside.top < title.bottom, gap: Math.round(r.right - aside.right) };
     }));
     const need = heads[0];
     const bad = heads.filter((x) => x.beside !== need.beside || (x.beside && x.gap > 1));
-    check(`${width}px: the yearly and category card heads lay out like the group cards`, bad.length === 0, JSON.stringify(heads));
+    check(`${width}px: the yearly, category and people card heads lay out like the group cards`, bad.length === 0, JSON.stringify(heads));
     await ctx.close();
   }
 
@@ -1012,6 +1012,63 @@ async function editAndSave(page, value) {
   await page.locator(AMT).first().fill(value);
   await until(page, ([k, v]) => (localStorage.getItem(k) || '').includes(`"amt":${v}`), [PLAN_KEY, value]);
 }
+
+section('people', async () => {
+  const { ctx, page } = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
+  const st = () => page.evaluate(() => window.__hbp.state());
+  const focused = () => page.evaluate(() => document.activeElement.id);
+  check('an upgraded plan asks for the household’s names', await bannerHas(page, 'add the people in your household'));
+  let s = await st();
+  const p1 = s.people[0].id;
+  await page.click('[data-act="goto-people"]');
+  check('"Go to People" focuses the first name and closes the banner', (await focused()) === `pn-${p1}` && !(await page.locator('#banner').innerText()).includes('add the people'));
+  check('with one person there is no ×', (await page.locator('[data-act="del-person"]').count()) === 0);
+  const fun = await lineId(page, 'Fun & vacation');
+  const totals = (x) => x.scenarios.map((sc) => sc.incomes.reduce((a, i) => a + i.amt, 0));
+  const totalsBefore = totals(s);
+
+  await page.click('[data-act="add-person"]');
+  s = await st();
+  const p2 = s.people[1] && s.people[1].id;
+  check('"+ Add person" adds Person 2 and focuses its name', s.people.length === 2 && s.people[1].name === 'Person 2' && (await focused()) === `pn-${p2}`, JSON.stringify(s.people));
+  await page.selectOption('#aw-msav', p2);
+  await page.click(`#pn-${p2}`);
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('Sam');
+  const focus = await page.evaluate(() => ({ id: document.activeElement.id, value: document.activeElement.value }));
+  check('typing a name keeps focus and every keystroke', focus.id === `pn-${p2}` && focus.value === 'Sam', JSON.stringify(focus));
+  check('menus follow the new name while typing', (await page.$eval(`#c-${fun} optgroup[data-person="${p2}"]`, (e) => e.label)) === 'Sam');
+  const tagOf = () => page.locator(`[data-goal="${fun}"] .tag`).innerText();
+  check('labels follow it too', (await tagOf()) === 'My savings · Sam', await tagOf());
+  check('the owner menus follow it', (await page.$eval(`#aw-jchk option[value="${p2}"]`, (e) => e.textContent)) === 'Sam');
+
+  await page.click(`[data-act="del-person"][data-id="${p1}"]`);
+  const armedText = await page.locator(`[data-act="del-person"][data-id="${p1}"]`).innerText();
+  const armedTitle = await page.locator(`[data-act="del-person"][data-id="${p1}"]`).getAttribute('aria-label');
+  check('the first click only asks, and says what will happen', (await st()).people.length === 2 && (armedTitle + armedText).includes('Click again') && (armedTitle + armedText).includes('Sam'), armedTitle + '|' + armedText);
+  await page.click(`[data-act="del-person"][data-id="${p1}"]`);
+  s = await st();
+  check('removing a person makes their accounts shared and gives their pay to the next person',
+    s.people.length === 1 && s.accounts.mchk.owner === '' && s.scenarios.every((x) => x.incomes.every((i) => i.who === p2)) &&
+    isDeepStrictEqual(totals(s), totalsBefore), JSON.stringify(s.people));
+  check('with one person left there is no × again', (await page.locator('[data-act="del-person"]').count()) === 0);
+
+  // Review Focus 1
+  await page.fill(`#pn-${p2}`, '<u>x</u>');
+  const tag = await tagOf();
+  check('a name is shown as text, never as markup', (await page.locator('#root u').count()) === 0 && tag.includes('<u>x</u>'), tag);
+  await page.fill(`#pn-${p2}`, '');
+  check('an empty name shows as "Person 1"', (await tagOf()) === 'My savings · Person 1', await tagOf());
+  await ctx.close();
+
+  const b = await openPage({});
+  await b.page.setInputFiles('#import-file', FIXTURE_V1);
+  await b.page.click('[data-act="import-confirm"]');
+  check('importing an older file says so and asks for names', await bannerHas(b.page, 'Imported the plan') && await bannerHas(b.page, 'add the people'));
+  await b.page.click('[data-act="banner-close"]');
+  check('Dismiss closes the banner', (await b.page.locator('#banner').innerText()).trim() === '');
+  await b.ctx.close();
+});
 
 section('two-windows', async () => {
   const fx = JSON.parse(fs.readFileSync(FIXTURE_V1, 'utf8'));

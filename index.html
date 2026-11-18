@@ -304,6 +304,10 @@ textarea.copybox { width: 100%; min-height: 120px; font: 13px/1.4 ui-monospace, 
 .cmp td.neg { color: var(--bad); font-weight: 600; }
 .cmp td.pos { color: var(--warn); font-weight: 600; }
 
+/* People: a name, what that person has here, and a × (armed, it says what will happen). */
+.person-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
+.person-row .p-m { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.person-row .p-d.danger { white-space: normal; text-align: left; max-width: 28ch; }
 .acct-group { display: flex; flex-direction: column; gap: 6px; }
 .acct-group h3 { font-size: 13px; font-weight: 700; color: var(--ink-2); overflow-wrap: anywhere; }
 .acct-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 64px 132px minmax(80px, auto); gap: 8px; align-items: center; }
@@ -360,6 +364,10 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   .ci-row > .ci-p { grid-area: p; text-align: left; font-size: 12px; color: var(--ink-2); } .ci-row > .ci-d { grid-area: d; }
   .ci-row > .ci-p::before { content: 'Planned '; }
   .ci-total { border-bottom: none; }
+  .person-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "n d" "m m"; }
+  .person-row > .p-n { grid-area: n; } .person-row > .p-m { grid-area: m; } .person-row > .p-d { grid-area: d; }
+  .person-row.armed { grid-template-areas: "n n" "m m" "d d"; }
+  .person-row .p-d.danger { max-width: none; }
   .acct-row { grid-template-columns: 80px minmax(0, 1fr) minmax(0, 1fr) minmax(80px, auto); grid-template-areas: "n n o o" "k w w d"; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
   .acct-row > .a-n { grid-area: n; } .acct-row > .a-o { grid-area: o; } .acct-row > .a-k { grid-area: k; }
   .acct-row > .a-w { grid-area: w; } .acct-row > .a-d { grid-area: d; }
@@ -700,17 +708,19 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   var storageOk = true;
   function newerBanner() { return { kind: 'error', html: '<b>' + esc(NEWER_MSG) + '</b>' }; }
   var TOUR_KEY = 'household-budget-planner:tour-seen';
-  var banner = blocked ? newerBanner() : (lsGet(TOUR_KEY) ? null : { kind: 'tour' });          // {kind:'import'|'error'|'info', ...}
+  // One slot: the newer-version error first, then the people notice after an upgrade, then the tour offer.
+  var banner = blocked ? newerBanner() : (migratedOnLoad ? { kind: 'people', lead: '' } : (lsGet(TOUR_KEY) ? null : { kind: 'tour' }));          // {kind:'import'|'error'|'info'|'people'|'tour', ...}
   var pendingDelete = null;
   var pendingDeleteCat = null;
   var pendingDeleteAcct = null; // account armed for removal
+  var pendingDeletePerson = null; // person armed for removal
   var pendingCiDel = null;   // month of a check-in armed for deletion
   var ciView = null;        // month the check-in card shows, or null for the default
   var ciShown = null;       // month the card is currently showing (set while rendering)
   var pendingReset = false;
   var copyFallback = false;
   // A month opened from the history and armed deletes belong to the plan on screen; a new plan starts without them.
-  function resetView() { ciView = null; pendingCiDel = null; pendingDeleteCat = null; pendingDeleteAcct = null; pendingDelete = null; }
+  function resetView() { ciView = null; pendingCiDel = null; pendingDeleteCat = null; pendingDeleteAcct = null; pendingDeletePerson = null; pendingDelete = null; }
 
   if (migratedOnLoad) persist();
 
@@ -1211,6 +1221,13 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
         '<button class="btn ghost" type="button" data-act="banner-close">Cancel</button></span></div>';
       return;
     }
+    if (banner.kind === 'people') {
+      var ask = 'New: add the people in your household. Accounts and pay now say whose they are.';
+      el.innerHTML = '<div class="banner"><span class="msg">' + (banner.lead ? '<b>' + banner.lead + '</b><small>' + ask + '</small>' : '<b>' + ask + '</b>') + '</span>' +
+        '<span class="actions"><button class="btn primary" type="button" data-act="goto-people">Go to People</button>' +
+        '<button class="btn ghost" type="button" data-act="banner-close">Dismiss</button></span></div>';
+      return;
+    }
     el.innerHTML = '<div class="banner' + (banner.kind === 'error' ? ' err' : '') + '"><span class="msg">' + banner.html + '</span>' +
       '<button class="btn ghost" type="button" data-act="banner-close">Dismiss</button></div>';
   }
@@ -1268,8 +1285,47 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
     h += categoriesHTML(s);
     h += yearlyHTML(s);
+    h += peopleHTML(s);
 
     return h + accountsHTML();
+  }
+
+  // Their accounts become Shared and their pay goes to the first person left (amounts and landing accounts unchanged).
+  function removePerson(id) {
+    if (state.people.length < 2 || !findPerson(id)) return;
+    var first = state.people.filter(function (p) { return p.id !== id; })[0].id;
+    state.people = state.people.filter(function (p) { return p.id !== id; });
+    Object.keys(state.accounts).forEach(function (a) { var x = state.accounts[a]; if (okObj(x) && x.owner === id) x.owner = ''; });
+    state.scenarios.forEach(function (sx) { sx.incomes.forEach(function (i) { if (i.who === id) i.who = first; }); });
+  }
+  function ownedBy(id) { return acctIds().filter(function (a) { return ownerOf(a) === id; }).length; }
+  function peopleMeta(s, id) {
+    var k = ownedBy(id), pay = 0;
+    s.incomes.forEach(function (x) { if (x.who === id) pay += n(x.amt); });
+    return k + ' account' + (k === 1 ? '' : 's') + ' · ' + money(pay) + ' take-home here';
+  }
+  function peopleHTML(s) {
+    var np = state.people.length;
+    if (pendingDeletePerson && (np < 2 || !findPerson(pendingDeletePerson))) pendingDeletePerson = null;
+    var h = '<section class="card" aria-label="People" data-tour="people">' +
+      '<div class="card-head"><div><h2>People</h2><p class="desc">Who’s in the household. Names show on accounts and pay.</p></div>' +
+      '<span class="meta">' + np + ' ' + (np === 1 ? 'person' : 'people') + '</span></div><div class="rows">';
+    state.people.forEach(function (p) {
+      var name = esc(personName(p.id)), armed = pendingDeletePerson === p.id, del = '';
+      if (np > 1) {
+        if (armed) {
+          var k = ownedBy(p.id), next = state.people.filter(function (x) { return x.id !== p.id; })[0];
+          var say = 'Click again: ' + (k ? name + '’s ' + k + ' account' + (k === 1 ? '' : 's') + (k === 1 ? ' becomes' : ' become') + ' shared, ' : '') +
+            name + '’s pay moves to ' + esc(personName(next.id));
+          del = '<button class="p-d btn ghost danger" id="dp-' + esc(p.id) + '" type="button" data-act="del-person" data-id="' + esc(p.id) + '" aria-label="' + say + '">' + say + '</button>';
+        } else {
+          del = '<button class="p-d icon" id="dp-' + esc(p.id) + '" type="button" data-act="del-person" data-id="' + esc(p.id) + '" aria-label="Remove ' + name + '" title="Remove ' + name + '">×</button>';
+        }
+      }
+      h += '<div class="person-row' + (armed ? ' armed' : '') + '"><input class="in p-n" id="pn-' + esc(p.id) + '" data-scope="person" data-id="' + esc(p.id) + '" data-field="name" value="' + esc(p.name) + '" placeholder="' + name + '" aria-label="Name of person">' +
+        '<span class="mo p-m" data-out="pm-' + esc(p.id) + '">' + esc(peopleMeta(s, p.id)) + '</span>' + del + '</div>';
+    });
+    return h + '</div><button class="btn ghost add" type="button" data-act="add-person">+ Add person</button></section>';
   }
 
   // Grouped by owner: Shared first, then each person in People order. A group with no accounts isn't shown.
@@ -1280,7 +1336,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     [''].concat(state.people.map(function (p) { return p.id; })).forEach(function (o) {
       var ids = acctIds().filter(function (a) { return ownerOf(a) === o; });
       if (!ids.length) return;
-      h += '<div class="acct-group"><h3>' + esc(o ? personName(o) : 'Shared') + '</h3><div class="rows">' + ids.map(acctRowHTML).join('') + '</div></div>';
+      h += '<div class="acct-group"><h3' + (o ? ' data-person="' + esc(o) + '"' : '') + '>' + esc(o ? personName(o) : 'Shared') + '</h3><div class="rows">' + ids.map(acctRowHTML).join('') + '</div></div>';
     });
     return h + '<div class="actions">' +
       '<button class="btn ghost add" type="button" data-act="add-acct" data-kind="spend">+ Add spending account</button>' +
@@ -1502,6 +1558,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       setOut('gt-' + G.key, money(c.g[G.key]));
       setOut('gp-' + G.key, c.I > 0 ? pct(c.g[G.key] / c.I) + ' of income' : '');
     });
+    state.people.forEach(function (p) { setOut('pm-' + p.id, esc(peopleMeta(s, p.id))); });
     state.cats.forEach(function (ct) { setOut('ct-' + ct.id, money(catTotal(s, ct.id)) + ' / mo'); });
     refreshCheckin();
     setOut('fund-c', money(fundMonthly(s)));
@@ -1875,7 +1932,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     state.touched = true;
     state.modifiedAt = now;
     state.lastSync = { at: now, kind: 'import', by: p.exportedBy || '' };
-    banner = { kind: 'info', html: 'Imported the plan' + (p.exportedBy ? ' from ' + esc(p.exportedBy) : '') + '.' };
+    var lead = 'Imported the plan' + (p.exportedBy ? ' from ' + esc(p.exportedBy) : '') + '.';
+    // A file from an older version has no people yet: say so, with the import message first.
+    banner = p.state && p.state.v < DATA_V ? { kind: 'people', lead: lead } : { kind: 'info', html: lead };
     resetView();
     persist();
     renderAll();
@@ -1920,6 +1979,17 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       var ct = findCat(id); if (!ct) return;
       ct.name = v;
       root.querySelectorAll('select[data-field="cat"] option[value="' + id + '"]').forEach(function (o) { o.textContent = catName(id); });
+    }
+    else if (sc === 'person') {
+      var pp = findPerson(id); if (!pp || t.tagName === 'SELECT') return;
+      pp.name = v;
+      // Show the name wherever it is shown, without re-drawing the input being typed in (labels follow in refresh()).
+      var pShown = personName(id);
+      root.querySelectorAll('optgroup[data-person="' + id + '"]').forEach(function (g) { g.label = pShown; });
+      root.querySelectorAll('.acct-group h3[data-person="' + id + '"]').forEach(function (h3) { h3.textContent = pShown; });
+      root.querySelectorAll('select[data-field="owner"] option[value="' + id + '"], select[data-field="who"] option[value="' + id + '"]').forEach(function (o) { o.textContent = pShown; });
+      // An empty name shows as "Person N", so the other empty names may have changed place; the field hints follow.
+      state.people.forEach(function (q) { var qi = document.getElementById('pn-' + q.id); if (qi) qi.placeholder = personName(q.id); });
     }
     else if (sc === 'acct') {
       var ac = findAcct(id); if (!ac || t.tagName === 'SELECT') return;
@@ -1994,6 +2064,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (act !== 'reset') pendingReset = false;
     if (act !== 'del-cat') pendingDeleteCat = null;
     if (act !== 'del-acct') pendingDeleteAcct = null;
+    if (act !== 'del-person') pendingDeletePerson = null;
     if (act !== 'ci-del') pendingCiDel = null;
     if (act === 'tour' || act === 'tour-start') { startTour(); return; }
     if (act === 'tour-later') { lsSet(TOUR_KEY, '1'); banner = null; renderBanner(); return; }
@@ -2028,6 +2099,27 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (act === 'import') { startImport(); return; }
     if (act === 'import-confirm') { confirmImport(); return; }
     if (act === 'banner-close') { banner = null; renderBanner(); return; }
+    if (act === 'goto-people') {
+      banner = null; renderBanner();
+      var pc = document.querySelector('[data-tour="people"]'), pf = state.people.length ? document.getElementById('pn-' + state.people[0].id) : null;
+      if (pc) pc.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' });
+      if (pf) pf.focus({ preventScroll: true });
+      return;
+    }
+    if (act === 'add-person') {
+      var np = { id: nid(), name: 'Person ' + (state.people.length + 1) };
+      state.people.push(np); changed(); rerenderEditor('pn-' + np.id);
+      var pe = document.getElementById('pn-' + np.id); if (pe) pe.select();
+      return;
+    }
+    if (act === 'del-person') {
+      var dp = b.getAttribute('data-id');
+      if (state.people.length < 2 || !findPerson(dp)) return;
+      if (pendingDeletePerson === dp) {
+        removePerson(dp); pendingDeletePerson = null; changed(); rerenderEditor('pn-' + state.people[0].id);
+      } else { pendingDeletePerson = dp; rerenderEditor('dp-' + dp); }
+      return;
+    }
     if (act === 'add-line') {
       var g = b.getAttribute('data-g');
       // A savings item goes to the first savings account; anything else is paid from where pay lands, else the first spending account.
