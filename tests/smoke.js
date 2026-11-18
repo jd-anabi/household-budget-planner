@@ -23,8 +23,9 @@ const { chromium } = require('playwright');
 const ROOT = path.resolve(__dirname, '..');
 const APP_ID = 'household-budget-planner';
 const PLAN_KEY = 'household-budget-planner:plan:v1';
-const BACKUP_KEY = 'household-budget-planner:plan:v1-backup';
-const DATA_VERSION = 2; // Bump with the data model, and add a check that an older plan file still imports.
+const backupKey = (k) => `household-budget-planner:plan:v${k}-backup`; // where a stored plan of version k is copied before its upgrade
+const BACKUP_KEY = backupKey(1); // also where a stored value the app can't read is copied
+const DATA_VERSION = 3; // Bump with the data model, and add a check that an older plan file still imports.
 const FIXTURE_V1 = path.join(__dirname, 'fixtures', 'plan-v1.json');
 const FIXTURE_V2 = path.join(__dirname, 'fixtures', 'plan-v2.json');
 const SHOTS = process.argv[2] ? path.resolve(process.argv[2]) : null;
@@ -277,37 +278,114 @@ section('guard', async () => {
   await b.ctx.close();
 });
 
+// What the v2 → v3 upgrade adds (spec §8), checked on the upgraded plan `st` against the v2-shaped plan `src` it came from.
+function upgradeChecks(label, st, src) {
+  const people = Array.isArray(st.people) ? st.people : [];
+  const pid = people[0] && people[0].id;
+  const acct = (a) => st.accounts[a] || {};
+  const scns = JSON.stringify(st.scenarios.map((s) => ({ id: s.id, incomes: s.incomes.map((x) => `${x.who} → ${x.to}`), split: s.split })));
+  check(`upgrade adds one placeholder person (${label})`, people.length === 1 && people[0].name === 'Person 1', `people: ${JSON.stringify(st.people)}`);
+  check(`the five accounts get kinds and owners (${label})`, !!pid &&
+    ['jchk', 'mchk'].every((a) => acct(a).kind === 'spend') && ['jsav', 'msav', 'inv'].every((a) => acct(a).kind === 'save') &&
+    acct('mchk').owner === pid && acct('msav').owner === pid && ['jchk', 'jsav', 'inv'].every((a) => acct(a).owner === ''),
+    JSON.stringify({ pid, accounts: st.accounts }));
+  check(`acctOrder lists the five accounts (${label})`, String(st.acctOrder) === 'jchk,mchk,jsav,msav,inv', `acctOrder: ${JSON.stringify(st.acctOrder)}`);
+  check(`every income is Person 1’s and lands where the scenario deposited it (${label})`, !!pid &&
+    st.scenarios.every((s, i) => s.incomes.every((x) => x.who === pid && x.to === src.scenarios[i].depositTo)), `person ${pid}: ${scns}`);
+  check(`every scenario splits by take-home (${label})`,
+    st.scenarios.every((s) => !!s.split && s.split.mode === 'income' && isDeepStrictEqual(s.split.pct, {})), scns);
+}
+
 section('migration', async () => {
-  const fx = JSON.parse(fs.readFileSync(FIXTURE_V1, 'utf8'));
-  const withExtra = Object.assign({}, fx, { state: Object.assign({}, fx.state, { extra: { a: 1 } }) });
-  const f = path.join(TMP, 'v1.json');
-  fs.writeFileSync(f, JSON.stringify(withExtra));
-  const { ctx, page } = await openPage({});
-  await page.setInputFiles('#import-file', f);
-  await page.locator('[data-act="import-confirm"]').click();
-  const st = await page.evaluate(() => window.__hbp.state());
-  check('v1 file imports as v2', st.v === 2 && st.cats.length === 0 && st.checkins.length === 0 && st.fund.acct === '' && st.fund.saved === 0);
-  check('unknown fields are kept', isDeepStrictEqual(st.extra, { a: 1 }));
   const lines = (s) => s.scenarios.flatMap((x) => x.lines);
+  // Imports `state` as a plan file of version `v` into a fresh profile and returns the plan the app then holds.
+  const importInto = async (v, state) => {
+    const f = path.join(TMP, `v${v}.json`);
+    fs.writeFileSync(f, JSON.stringify({ app: APP_ID, v, exportedAt: new Date().toISOString(), exportedBy: '', state }));
+    const { ctx, page } = await openPage({});
+    await page.setInputFiles('#import-file', f);
+    await page.locator('[data-act="import-confirm"]').click();
+    const st = await page.evaluate(() => window.__hbp.state());
+    await ctx.close();
+    return st;
+  };
+  const stored = (page, k) => page.evaluate((key) => localStorage.getItem(key), k);
+  const storedV = async (page) => JSON.parse(await stored(page, PLAN_KEY)).v;
+
+  const fx = JSON.parse(fs.readFileSync(FIXTURE_V1, 'utf8'));
+  const st = await importInto(1, Object.assign({}, fx.state, { extra: { a: 1 } }));
+  check(`v1 file imports as v${DATA_VERSION}`, st.v === DATA_VERSION && st.cats.length === 0 && st.checkins.length === 0 && st.fund.acct === '' && st.fund.saved === 0,
+    JSON.stringify({ v: st.v, cats: st.cats, checkins: st.checkins, fund: st.fund }));
+  check('unknown fields are kept', isDeepStrictEqual(st.extra, { a: 1 }));
   check('every v1 line keeps its fields', lines(fx.state).length === lines(st).length &&
     lines(fx.state).every((l, i) => ['id', 'g', 'name', 'amt', 'f', 'acct'].every((k) => isDeepStrictEqual(lines(st)[i][k], l[k]))));
   check('need/want lines get cat and due', lines(st).filter((l) => l.g !== 'save').every((l) => l.cat === '' && l.due === 0));
   check('goals get an empty by', lines(st).filter((l) => l.goal).every((l) => l.goal.by === ''));
-  await ctx.close();
+  upgradeChecks('v1 file', st, fx.state);
+
+  // A v2 file gains only the fields the upgrade adds; everything else, unknown fields included, is as it was.
+  const src2 = Object.assign({}, oldPlan(), { extra: { a: 1 } });
+  const st2 = await importInto(2, src2);
+  check(`v2 file imports as v${DATA_VERSION}`, st2.v === DATA_VERSION, `v ${st2.v}`);
+  upgradeChecks('v2 file', st2, src2);
+  const rest = withoutSyncFields(st2), was = withoutSyncFields(src2);
+  delete rest.v; delete was.v; delete rest.people; delete rest.acctOrder;
+  Object.keys(rest.accounts).forEach((a) => { delete rest.accounts[a].kind; delete rest.accounts[a].owner; });
+  rest.scenarios.forEach((s) => { delete s.split; s.incomes.forEach((x) => { delete x.who; delete x.to; }); });
+  const differ = Object.keys(Object.assign({}, rest, was)).filter((k) => !isDeepStrictEqual(rest[k], was[k]));
+  check('everything else in a v2 file is unchanged', differ.length === 0, `differs: ${differ.join(', ')}`);
 
   const raw = JSON.stringify(fx.state);
   const b = await openPage({ storage: { [PLAN_KEY]: raw } });
-  check('stored v1 plan migrates on load', (await b.page.evaluate((k) => JSON.parse(localStorage.getItem(k)).v, PLAN_KEY)) === 2);
-  check('stored v1 plan is backed up', (await b.page.evaluate((k) => localStorage.getItem(k), BACKUP_KEY)) === raw);
+  const v1 = await storedV(b.page);
+  check('stored v1 plan migrates on load', v1 === DATA_VERSION, `stored v ${v1}`);
+  check('stored v1 plan is backed up', (await stored(b.page, backupKey(1))) === raw);
   const m = await b.page.evaluate(() => [window.__hbp.prevMonth(new Date(2027, 0, 15)), window.__hbp.monthKey(window.__hbp.monthIndex('2026-12') + 1)]);
   check('months roll over the year', m[0] === '2026-12' && m[1] === '2027-01', JSON.stringify(m));
   await b.ctx.close();
 
+  const raw2 = JSON.stringify(oldPlan());
+  const d = await openPage({ storage: { [PLAN_KEY]: raw2 } });
+  const v2 = await storedV(d.page);
+  check('stored v2 plan migrates on load', v2 === DATA_VERSION, `stored v ${v2}`);
+  const bk = { v2: await stored(d.page, backupKey(2)), v1: await stored(d.page, backupKey(1)) };
+  check('stored v2 plan is backed up under the v2 key', bk.v2 === raw2 && bk.v1 === null,
+    `v2 key ${bk.v2 === raw2 ? 'holds the stored plan' : bk.v2 === null ? 'is empty' : 'holds something else'}, v1 key ${bk.v1 === null ? 'is empty' : 'is written'}`);
+
+  // Equivalence: the v2 rule, computed here. Each account but the landing one receives the monthly sum of the lines
+  // assigned to it (yearly need/want lines go to the fund account while the fund is on); the rest stays where pay lands.
+  const old = oldPlan();
+  const K = { mo: 1, wk: 52 / 12, yr: 1 / 12 };
+  for (const s of old.scenarios) {
+    const by = {};
+    s.lines.forEach((l) => {
+      const a = old.fund.acct && l.f === 'yr' && (l.g === 'need' || l.g === 'want') ? old.fund.acct : l.acct;
+      by[a] = (by[a] || 0) + Math.max(0, Number(l.amt) || 0) * (K[l.f] || 1);
+    });
+    const I = s.incomes.reduce((sum, x) => sum + Math.max(0, Number(x.amt) || 0), 0);
+    const items = ['jchk', 'mchk', 'jsav', 'msav', 'inv'].filter((a) => a !== s.depositTo && (by[a] || 0) > 0.5).map((a) => ({ a, amt: by[a] }));
+    const expKeep = I - items.reduce((sum, x) => sum + x.amt, 0);
+    const exp = { land: s.depositTo, items, keep: expKeep };
+    const t = await d.page.evaluate((id) => (window.__hbp.transfers ? window.__hbp.transfers(id) : null), s.id);
+    const sameItems = !!t && t.land === exp.land && t.items.length === items.length &&
+      t.items.every((x, k) => x.a === items[k].a && Math.abs(x.amt - items[k].amt) < 1e-9);
+    check(`an upgraded scenario’s payday plan is unchanged (${s.id})`, sameItems && Math.abs(t.keep - expKeep) < 1e-9, JSON.stringify({ t, exp }));
+  }
+
+  // What the app adds to an upgraded plan keeps it loadable: an income needs a person and an account, a scenario a split.
+  await d.page.click('[data-act="add-inc"]');
+  await d.page.click('[data-act="new-scn"]');
+  await until(d.page, (k) => { try { return JSON.parse(localStorage.getItem(k)).scenarios.length === 3; } catch (e) { return false; } }, PLAN_KEY);
+  await d.page.reload({ waitUntil: 'networkidle' });
+  const back = await d.page.evaluate(() => { const s = window.__hbp.state(); return { scenarios: s.scenarios.length, incomes: s.scenarios[0].incomes.length }; });
+  check('an income and a scenario added after the upgrade still load after a reload', back.scenarios === 3 && back.incomes === 3, JSON.stringify(back));
+  await d.ctx.close();
+
   const c = await openPage({});
   const ex = await c.page.evaluate(() => window.__hbp.state());
   const car = lines(ex).find((l) => l.name === 'Car registration & maintenance');
-  check('example plan is v2 with six categories and the fund on',
-    ex.v === 2 && ex.cats.length === 6 && ex.fund.acct === 'jsav' && car && car.due === 3 && !!car.cat,
+  check(`example plan is v${DATA_VERSION} with six categories and the fund on`,
+    ex.v === DATA_VERSION && ex.cats.length === 6 && ex.fund.acct === 'jsav' && car && car.due === 3 && !!car.cat,
     JSON.stringify({ v: ex.v, cats: ex.cats && ex.cats.length, fund: ex.fund }));
   await c.ctx.close();
 });
@@ -706,11 +784,20 @@ section('import-safety', async () => {
     'check-in without spend rows': variant((st) => { st.checkins = [{ month: '2026-10', scn: 'now', scnName: 'Now', startedAt: 0, by: '', goals: [], fund: null }]; }),
     'category id with markup': variant((st) => { st.cats[0].id = 'x"><img src=x onerror="window.__pwned=1">'; }),
     'check-in month with markup': variant((st) => { st.checkins = [{ month: '2026-13"><b>', scn: 'now', scnName: 'Now', startedAt: 0, by: '', spend: [], goals: [], fund: null }]; }),
+    'no people': variant((st) => { st.people = []; }),
+    'person id with markup': variant((st) => { st.people[0].id = 'x"><b>'; }),
+    'account id with markup': variant((st) => { st.accounts['x"><b>'] = { name: 'X', note: '', kind: 'spend', owner: '' }; st.acctOrder.push('x"><b>'); }),
+    'acctOrder names a missing account': variant((st) => { st.acctOrder.push('nope'); }),
+    'no savings account': variant((st) => {
+      const sv = Object.keys(st.accounts).filter((a) => st.accounts[a].kind === 'save');
+      sv.forEach((a) => { delete st.accounts[a]; }); st.acctOrder = st.acctOrder.filter((a) => !sv.includes(a)); st.fund.acct = '';
+    }),
+    'unknown split mode': variant((st) => { st.scenarios[0].split.mode = 'half'; }),
   };
   for (const [name, st] of Object.entries(files)) {
     await page.reload({ waitUntil: 'networkidle' });
     const f = path.join(TMP, 'bad.json');
-    fs.writeFileSync(f, JSON.stringify({ app: APP_ID, v: 2, exportedAt: new Date().toISOString(), exportedBy: '', state: st }));
+    fs.writeFileSync(f, JSON.stringify({ app: APP_ID, v: DATA_VERSION, exportedAt: new Date().toISOString(), exportedBy: '', state: st }));
     await page.setInputFiles('#import-file', f);
     const refused = await bannerHas(page, 'isn’t a budget plan file');
     check(`a malformed file is refused (${name})`, refused && (await page.locator('[data-act="import-confirm"]').count()) === 0);

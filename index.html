@@ -406,8 +406,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   var PLAN_KEY = 'household-budget-planner:plan:v1';
   var NAME_KEY = 'household-budget-planner:name';
   var APP_ID = 'household-budget-planner';
-  var DATA_V = 2;
-  var BACKUP_KEY = 'household-budget-planner:plan:v1-backup';
+  var DATA_V = 3;
+  // Where a stored plan of version k is copied before it is upgraded (the v1 key also takes a value that can't be read).
+  function backupKey(k) { return 'household-budget-planner:plan:v' + k + '-backup'; }
   var NEWER_MSG = 'This plan was saved by a newer version of the app. Reload while online to update.';
   var FREQ = { mo: { label: 'monthly', k: 1 }, wk: { label: 'weekly', k: 52 / 12 }, yr: { label: 'yearly', k: 1 / 12 } };
   var GROUPS = [
@@ -440,7 +441,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function monthLong(key) { var i = monthIndex(key); return MONTHS[((i % 12) + 12) % 12]; }
   function monthLabel(key) { return monthLong(key).slice(0, 3) + ' ' + Math.floor(monthIndex(key) / 12); }
 
-  /* Example plan shown on first open. Real numbers live only on your devices and in plan files you export. */
+  /* Example plan shown on first open. Real numbers live only on your devices and in plan files you export.
+     For now it is the v2 example, upgraded like any stored v2 plan. */
   function defaults() {
     var cats = ['Bills & utilities', 'Groceries', 'Transportation', 'Eating out & fun', 'Personal', 'Gifts']
       .map(function (name) { return { id: nid(), name: name }; });
@@ -466,7 +468,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
         if (l.goal && /^Move-in fund/.test(l.name)) l.goal.by = monthKey(monthIndex(thisMonth()) + 12);
       });
     });
-    return p;
+    return migrate(p);
   }
 
   function example() {
@@ -559,6 +561,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   var ID_RE = /^[A-Za-z0-9_:-]{1,80}$/, MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
   function okId(x) { return typeof x === 'string' && ID_RE.test(x); }
   function okObj(x) { return !!x && typeof x === 'object'; }
+  function okMap(x) { return okObj(x) && !Array.isArray(x); } // an object keyed by id: fields added to an array would be lost on save
+  // What v2 and v3 plans share.
   function validDeep(p) {
     return p.scenarios.every(function (s) {
       return okId(s.id) &&
@@ -574,37 +578,86 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
           ci.spend.every(function (r) { return okObj(r) && okId(r.key); }) &&
           ci.goals.every(function (g) { return okObj(g) && okId(g.line); }) &&
           (ci.fund === null || ci.fund === undefined || okObj(ci.fund));
-      }) &&
-      (p.fund.acct === '' || SAVE_ACCTS.indexOf(p.fund.acct) >= 0);
+      });
   }
+  // The five fixed accounts of a v2 plan. In v3 they are ordinary accounts with these ids.
+  var V2_ACCTS = ['jchk', 'mchk', 'jsav', 'msav', 'inv'];
+  // A plan as the v2 app accepted it. migrate() checks it before the v2 → v3 step.
+  function validV2(p) {
+    return validShape(p) && p.v === 2 && Array.isArray(p.cats) && Array.isArray(p.checkins) &&
+      okObj(p.fund) && validDeep(p) && (p.fund.acct === '' || ['jsav', 'msav', 'inv'].indexOf(p.fund.acct) >= 0);
+  }
+  var SPLIT_MODES = ['income', 'equal', 'custom'];
+  // A current (v3) plan: v2's checks, plus people, accounts with a kind, their display order, and each income's
+  // person and landing account. Ids that reach HTML must be safe; owners and other references may dangle (shown gracefully).
   function validPlan(p) {
-    return validShape(p) && p.v === DATA_V && Array.isArray(p.cats) && Array.isArray(p.checkins) &&
-      okObj(p.fund) && validDeep(p);
+    if (!validShape(p) || p.v !== DATA_V || !Array.isArray(p.cats) || !Array.isArray(p.checkins) ||
+      !okObj(p.fund) || !okMap(p.accounts) || !validDeep(p)) return false;
+    function acct(a) { return okId(a) && Object.prototype.hasOwnProperty.call(p.accounts, a) && okObj(p.accounts[a]) ? p.accounts[a] : null; }
+    var kinds = {};
+    return Array.isArray(p.people) && p.people.length > 0 && p.people.every(function (x) { return okObj(x) && okId(x.id); }) &&
+      Array.isArray(p.acctOrder) && p.acctOrder.every(function (a) {
+        var x = acct(a);
+        if (!x || (x.kind !== 'spend' && x.kind !== 'save')) return false;
+        kinds[x.kind] = true;
+        return true;
+      }) && !!kinds.spend && !!kinds.save &&
+      (p.fund.acct === '' || (!!acct(p.fund.acct) && acct(p.fund.acct).kind === 'save')) &&
+      p.scenarios.every(function (s) {
+        return okObj(s.split) && SPLIT_MODES.indexOf(s.split.mode) >= 0 && okMap(s.split.pct) && Object.keys(s.split.pct).every(okId) &&
+          s.incomes.every(function (x) { return okId(x.who) && okId(x.to); });
+      });
   }
 
-  // Upgrades a v1 plan to v2 (v2 passes through). Works on a copy, only adds missing fields,
-  // keeps everything else (unknown fields included). Returns null if the result isn't a valid plan.
+  // Upgrades an older plan one version at a time (v1 → v2 → v3); a current plan passes through.
+  // Works on a copy, only adds fields, keeps everything else (unknown fields included).
+  // Returns null if the plan isn't valid for its version or the result isn't a valid current plan.
   function migrate(p) {
     if (!p || typeof p !== 'object') return null;
     var q = JSON.parse(JSON.stringify(p));
     if (q.v === 1) {
       if (!validShape(q)) return null;
-      if (!Array.isArray(q.cats)) q.cats = [];
-      if (!Array.isArray(q.checkins)) q.checkins = [];
-      if (!q.fund || typeof q.fund !== 'object') q.fund = { acct: '', saved: 0 };
-      q.scenarios.forEach(function (s) {
-        s.lines.forEach(function (l) {
-          if (!l || typeof l !== 'object') return;
-          if (l.g === 'need' || l.g === 'want') {
-            if (l.cat === undefined) l.cat = '';
-            if (l.due === undefined) l.due = 0;
-          }
-          if (l.goal && typeof l.goal === 'object' && l.goal.by === undefined) l.goal.by = '';
-        });
-      });
-      q.v = 2;
+      v1to2(q);
+    }
+    if (q.v === 2) {
+      if (!validV2(q) || !okMap(q.accounts)) return null;
+      v2to3(q);
     }
     return validPlan(q) ? q : null;
+  }
+  function v1to2(q) {
+    if (!Array.isArray(q.cats)) q.cats = [];
+    if (!Array.isArray(q.checkins)) q.checkins = [];
+    if (!q.fund || typeof q.fund !== 'object') q.fund = { acct: '', saved: 0 };
+    q.scenarios.forEach(function (s) {
+      s.lines.forEach(function (l) {
+        if (!l || typeof l !== 'object') return;
+        if (l.g === 'need' || l.g === 'want') {
+          if (l.cat === undefined) l.cat = '';
+          if (l.due === undefined) l.due = 0;
+        }
+        if (l.goal && typeof l.goal === 'object' && l.goal.by === undefined) l.goal.by = '';
+      });
+    });
+    q.v = 2;
+  }
+  // One placeholder person, who owns "My checking" and "My savings" and earns every income. Every income lands
+  // where the scenario deposited pay, so each scenario stays pooled and its payday plan is the same as in v2.
+  function v2to3(q) {
+    var pid = nid();
+    q.people = [{ id: pid, name: 'Person 1' }];
+    V2_ACCTS.forEach(function (a) {
+      if (!okMap(q.accounts[a])) q.accounts[a] = { name: a, note: '' }; // v2 showed a missing account by its id
+      q.accounts[a].kind = a === 'jchk' || a === 'mchk' ? 'spend' : 'save';
+      q.accounts[a].owner = a === 'mchk' || a === 'msav' ? pid : '';
+    });
+    q.acctOrder = V2_ACCTS.slice(); // other keys of accounts, if any, stay as they are and aren't shown (as in v2)
+    q.scenarios.forEach(function (s) {
+      var to = s.depositTo === 'jchk' || s.depositTo === 'mchk' ? s.depositTo : 'jchk';
+      s.incomes.forEach(function (x) { x.who = pid; x.to = to; });
+      s.split = { mode: 'income', pct: {} };
+    });
+    q.v = 3;
   }
 
   // A plan saved by a newer version of the app must never be overwritten by this one:
@@ -612,19 +665,22 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function tooNew(p) { return !!(p && typeof p === 'object' && typeof p.v === 'number' && p.v > DATA_V); }
 
   // Reads the stored plan's raw JSON, on load and when another window saves the plan.
-  // Returns { plan, newer, upgraded }: plan is a valid current plan (a v1 plan upgraded) or null.
-  // A copy of a plan that had to be upgraded, in case the upgrade itself ever has a bug, or of
-  // something stored that can't be read, goes to BACKUP_KEY (once) before anything can save over it.
+  // Returns { plan, newer, upgraded, from }: plan is a valid current plan (an older one upgraded) or null,
+  // and from is the version an upgraded plan was stored as (else 0).
+  // Before anything can save over it, a copy of a plan that had to be upgraded (in case the upgrade itself
+  // ever has a bug) goes to backupKey(its version), and of something stored that can't be read to backupKey(1),
+  // each only if that key is empty.
   function readStored(raw) {
     var p = null, plan = null;
     try {
       p = JSON.parse(raw || 'null');
-      if (tooNew(p)) return { plan: null, newer: true, upgraded: false };
-      plan = p && p.v === 1 ? migrate(p) : (validPlan(p) ? p : null);
+      if (tooNew(p)) return { plan: null, newer: true, upgraded: false, from: 0 };
+      plan = p && typeof p.v === 'number' && p.v < DATA_V ? migrate(p) : (validPlan(p) ? p : null);
     } catch (e) { plan = null; }
-    var upgraded = !!plan && p.v === 1;
-    if (raw && (upgraded || !plan) && !lsGet(BACKUP_KEY)) lsSet(BACKUP_KEY, raw);
-    return { plan: plan, newer: false, upgraded: upgraded };
+    var from = plan && p.v < DATA_V ? p.v : 0;
+    var key = backupKey(from || 1);
+    if (raw && (from || !plan) && !lsGet(key)) lsSet(key, raw);
+    return { plan: plan, newer: false, upgraded: !!from, from: from };
   }
 
   var seenRaw = lsGet(PLAN_KEY); // the stored plan as this window last read or wrote it
@@ -1877,7 +1933,11 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       return;
     }
     if (act === 'del-line') { var id = b.getAttribute('data-id'); s.lines = s.lines.filter(function (l) { return l.id !== id; }); changed(); rerenderEditor(null); return; }
-    if (act === 'add-inc') { var ni = { id: nid(), name: 'Other income', amt: 0 }; s.incomes.push(ni); changed(); rerenderEditor('in-' + ni.id); var ie = document.getElementById('in-' + ni.id); if (ie) ie.select(); return; }
+    if (act === 'add-inc') {
+      // Whose pay and where it lands: the first person, and where the scenario's pay already lands (so it stays pooled).
+      var ni = { id: nid(), name: 'Other income', amt: 0, who: state.people[0].id,
+        to: s.incomes.length ? s.incomes[0].to : (SPEND_ACCTS.indexOf(s.depositTo) >= 0 ? s.depositTo : SPEND_ACCTS[0]) };
+      s.incomes.push(ni); changed(); rerenderEditor('in-' + ni.id); var ie = document.getElementById('in-' + ni.id); if (ie) ie.select(); return; }
     if (act === 'del-inc') { var iid = b.getAttribute('data-id'); s.incomes = s.incomes.filter(function (x) { return x.id !== iid; }); changed(); rerenderEditor(null); return; }
     if (act === 'copy-scn') {
       var cp = JSON.parse(JSON.stringify(s));
@@ -1890,7 +1950,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       return;
     }
     if (act === 'new-scn') {
-      var ns = { id: nid(), name: 'New scenario', sub: '', depositTo: s.depositTo, incomes: [], lines: [] };
+      var ns = { id: nid(), name: 'New scenario', sub: '', depositTo: s.depositTo, split: { mode: 'income', pct: {} }, incomes: [], lines: [] };
       state.scenarios.push(ns); state.active = ns.id;
       changed(); renderAll();
       var nn = document.getElementById('scn-name'); if (nn) { nn.focus(); nn.select(); }
@@ -2080,6 +2140,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     honeydueText: function () { return honeydueText(scn()); },
     spendRows: function (m) { return spendRows(scn(), m); },
     dateStatus: dateStatus, paceStatus: paceStatus, projectFund: projectFund,
+    transfers: function (id) { var s = id ? findScn(id) : scn(); return s ? transfers(s, calc(s)) : null; },
     tourState: function () { var st = tourSteps[tourI]; return { i: tourI, n: tourSteps.length, sel: st ? st.sel : null }; }
   };
 

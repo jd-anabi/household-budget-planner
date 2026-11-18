@@ -36,19 +36,24 @@ per-transaction tracking.
 - `docs/superpowers/`: the design and plan for the v2 features. `.nojekyll` makes GitHub Pages serve
   files as-is, so Markdown here can never break a deploy.
 
-## Data model (`state`, v2)
+## Data model (`state`, v3)
 
 ```
-{ v: 2, touched, modifiedAt, lastSync: {at, kind: 'export'|'import', by} | null, active,
-  accounts: { jchk, mchk, jsav, msav, inv: { name, note } },
+{ v: 3, touched, modifiedAt, lastSync: {at, kind: 'export'|'import', by} | null, active,
+  people: [{ id, name }],                               // the household, n ≥ 1, in display order
+  accounts: { <acctId>: { name, note,                   // keyed by id; v2's jchk, mchk, jsav, msav, inv are ordinary ids
+               kind: 'spend'|'save',                    // spending (pays need/want, pay lands here) or savings/investing
+               owner: '' | personId } },                // '' = Shared; an owner who no longer exists counts as Shared
+  acctOrder: [acctId],                                  // display order of the accounts the app shows
   cats: [{ id, name }],                                 // Honeydue categories, shared by all scenarios
-  fund: { acct: '' | 'jsav'|'msav'|'inv', saved },      // yearly-costs fund; '' = off
+  fund: { acct: '' | savingsAcctId, saved },            // yearly-costs fund; '' = off
   checkins: [{ month: 'YYYY-MM', scn, scnName, startedAt, by,          // one per month, sorted
     spend: [{ key: catId | 'line:'+lineId | 'other', name, planned, actual | null, note }],
     goals: [{ line, name, acct, target, planned, months, start, balance, assumed }],
     fund:  null | { acct, planned, due, months, start, balance, assumed } }],
-  scenarios: [{ id, name, sub, depositTo: 'jchk'|'mchk',
-    incomes: [{ id, name, amt }],                       // monthly take-home
+  scenarios: [{ id, name, sub, depositTo,               // depositTo: the v2 landing account, kept as a fallback
+    split: { mode: 'income'|'equal'|'custom', pct: { personId: number } },  // how shared costs split when pay is separate
+    incomes: [{ id, name, amt, who: personId, to: acctId }],  // monthly take-home; whose pay, which spending account it lands in
     lines:   [{ id, g: 'need'|'save'|'want', name, amt, f: 'mo'|'wk'|'yr', acct,
                 cat?: '' | catId, due?: 0..12,           // need/want only; due = month a yearly line is paid
                 goal?: { mode: 'none'|'amount'|'months', amount, months, saved, by: '' | 'YYYY-MM' } }] }] }
@@ -61,15 +66,28 @@ per-transaction tracking.
   what is stored through `readStored()`, the same path as on load (upgrade, newer-version guard, backup),
   drops its own pending save and re-renders. It skips a value equal to `seenRaw`, the one it last read or
   wrote. It never writes back from that handler, or two windows would overwrite each other.
-- Export file: `{ app: 'household-budget-planner', v: 2, exportedAt, exportedBy, state }`, named
+- Export file: `{ app: 'household-budget-planner', v: 3, exportedAt, exportedBy, state }`, named
   `budget-plan-YYYY-MM-DD.json`. On touch devices it uses the share sheet; otherwise a download.
   Import validates, then asks before replacing the device's plan.
-- `migrate()` upgrades v1 to v2 on load and on import by only adding fields (`cats: []`,
-  `checkins: []`, `fund: {acct: '', saved: 0}`, `cat: ''`, `due: 0`, `by: ''`); unknown fields are kept.
-  Before upgrading a stored v1 plan, the raw JSON is copied to `household-budget-planner:plan:v1-backup`.
-- Guard: a stored plan or imported file with `v` newer than the app (`DATA_V`) is never saved over;
+- `migrate()` upgrades older plans one step at a time, on load and on import, by only adding fields;
+  unknown fields are kept. v1 → v2 (`v1to2`) adds `cats: []`, `checkins: []`, `fund: {acct: '', saved: 0}`,
+  `cat: ''`, `due: 0`, `by: ''`. v2 → v3 (`v2to3`) adds one person "Person 1"; the five v2 accounts
+  (a missing one is created as `{name: id, note: ''}`) with kinds `jchk`/`mchk` spend, the rest save,
+  and owners `mchk`/`msav` Person 1, the rest Shared; `acctOrder: ['jchk','mchk','jsav','msav','inv']`;
+  every income `who` = Person 1 and `to` = the scenario's `depositTo` if that is `jchk` or `mchk`, else
+  `jchk` (so every upgraded scenario is pooled and its payday plan is unchanged); `split: {mode: 'income', pct: {}}`.
+- Validation (`validPlan`, v3; `validV2` checks a v2 plan between steps) refuses a malformed plan rather than
+  half-loading it. Ids that reach HTML must match `ID_RE`: people ids, `acctOrder` entries, income `who`/`to`,
+  `split.pct` keys (and category, line, scenario, income and check-in ids as before). `people` is non-empty,
+  every `acctOrder` entry is an account with a kind, there is at least one spending and one savings
+  account, `fund.acct` is `''` or a savings account, and `split.mode` is one of the three. Dangling
+  references (an owner, `who` or `to` that no longer exists) are allowed and shown gracefully.
+- Backups: before upgrading a stored plan of version k (1 or 2), its raw JSON is copied to
+  `household-budget-planner:plan:v{k}-backup`; a stored value that can't be read goes to the `v1-backup`
+  key. Each is written only if that key is empty. `readStored()` returns `{ plan, newer, upgraded, from }`.
+- Guard: a stored plan or imported file with `v` newer than the app (`DATA_V = 3`) is never saved over;
   the app shows "This plan was saved by a newer version of the app…" and blocks export/import.
-  The v1 app has the same guard, so rolling the v2 features back cannot overwrite a v2 plan.
+  The v1 and v2 apps have the same guard, so rolling the v3 features back cannot overwrite a v3 plan.
 - Monthly conversion: weekly × 52/12, yearly × 1/12. All amounts are after-tax dollars.
 - Goal balance is one number: the latest check-in's `balance` for that goal (matched by line id, then
   name), else `goal.saved`; "Saved so far" edits that same number (and is then labelled
