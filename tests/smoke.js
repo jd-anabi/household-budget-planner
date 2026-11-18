@@ -352,6 +352,16 @@ section('migration', async () => {
   check('stored v2 plan is backed up under the v2 key', bk.v2 === raw2 && bk.v1 === null,
     `v2 key ${bk.v2 === raw2 ? 'holds the stored plan' : bk.v2 === null ? 'is empty' : 'holds something else'}, v1 key ${bk.v1 === null ? 'is empty' : 'is written'}`);
 
+  // A stored v2 plan whose upgrade fails is still backed up under the v2 key, even on a device whose v1 key
+  // already holds a backup from an earlier upgrade; that earlier backup is never written over.
+  const badRaw = JSON.stringify(Object.assign(oldPlan(), { accounts: [] }));
+  const e = await openPage({ storage: { [PLAN_KEY]: badRaw, [backupKey(1)]: 'earlier v1 backup' } });
+  const ebk = { v2: await stored(e.page, backupKey(2)), v1: await stored(e.page, backupKey(1)) };
+  check('a stored v2 plan that can’t be upgraded is backed up under the v2 key, keeping an earlier v1 backup',
+    ebk.v2 === badRaw && ebk.v1 === 'earlier v1 backup',
+    `v2 key ${ebk.v2 === badRaw ? 'holds the stored plan' : ebk.v2 === null ? 'is empty' : 'holds something else'}, v1 key ${ebk.v1 === 'earlier v1 backup' ? 'unchanged' : 'changed'}`);
+  await e.ctx.close();
+
   // Equivalence: the v2 rule, computed here. Each account but the landing one receives the monthly sum of the lines
   // assigned to it (yearly need/want lines go to the fund account while the fund is on); the rest stays where pay lands.
   const old = oldPlan();

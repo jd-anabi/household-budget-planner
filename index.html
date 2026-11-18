@@ -667,9 +667,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   // Reads the stored plan's raw JSON, on load and when another window saves the plan.
   // Returns { plan, newer, upgraded, from }: plan is a valid current plan (an older one upgraded) or null,
   // and from is the version an upgraded plan was stored as (else 0).
-  // Before anything can save over it, a copy of a plan that had to be upgraded (in case the upgrade itself
-  // ever has a bug) goes to backupKey(its version), and of something stored that can't be read to backupKey(1),
-  // each only if that key is empty.
+  // Before anything can save over it, a copy of a stored older plan (in case the upgrade itself ever has a bug)
+  // goes to backupKey(its version), whether or not its upgrade worked, and of anything else stored that can't
+  // be read to backupKey(1); each only if that key is empty.
   function readStored(raw) {
     var p = null, plan = null;
     try {
@@ -678,7 +678,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       plan = p && typeof p.v === 'number' && p.v < DATA_V ? migrate(p) : (validPlan(p) ? p : null);
     } catch (e) { plan = null; }
     var from = plan && p.v < DATA_V ? p.v : 0;
-    var key = backupKey(from || 1);
+    var key = backupKey(p && (p.v === 1 || p.v === 2) ? p.v : 1);
     if (raw && (from || !plan) && !lsGet(key)) lsSet(key, raw);
     return { plan: plan, newer: false, upgraded: !!from, from: from };
   }
