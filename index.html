@@ -304,7 +304,12 @@ textarea.copybox { width: 100%; min-height: 120px; font: 13px/1.4 ui-monospace, 
 .cmp td.neg { color: var(--bad); font-weight: 600; }
 .cmp td.pos { color: var(--warn); font-weight: 600; }
 
-.acct-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.acct-group { display: flex; flex-direction: column; gap: 6px; }
+.acct-group h3 { font-size: 13px; font-weight: 700; color: var(--ink-2); overflow-wrap: anywhere; }
+.acct-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 64px 132px minmax(80px, auto); gap: 8px; align-items: center; }
+.acct-row .a-k { font-size: 13px; color: var(--ink-2); }
+.acct-row .a-d { justify-self: end; }
+.acct-row span.a-d { font-size: 12px; white-space: nowrap; }
 
 .ci-start { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
 .ci-start .field { min-width: 160px; }
@@ -355,6 +360,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   .ci-row > .ci-p { grid-area: p; text-align: left; font-size: 12px; color: var(--ink-2); } .ci-row > .ci-d { grid-area: d; }
   .ci-row > .ci-p::before { content: 'Planned '; }
   .ci-total { border-bottom: none; }
+  .acct-row { grid-template-columns: 80px minmax(0, 1fr) minmax(0, 1fr) minmax(80px, auto); grid-template-areas: "n n o o" "k w w d"; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .acct-row > .a-n { grid-area: n; } .acct-row > .a-o { grid-area: o; } .acct-row > .a-k { grid-area: k; }
+  .acct-row > .a-w { grid-area: w; } .acct-row > .a-d { grid-area: d; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
@@ -416,10 +424,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     { key: 'save', name: 'Savings', desc: 'Moved out first, on payday, so it actually gets saved.' },
     { key: 'want', name: 'Variable', desc: 'Fun, subscriptions, personal spending, and a buffer for surprises.' }
   ];
-  var ACCT_ORDER = ['jchk', 'mchk', 'jsav', 'msav', 'inv'];
-  var SPEND_ACCTS = ['jchk', 'mchk'];
-  var SAVE_ACCTS = ['jsav', 'msav', 'inv'];
-  var ACCT_COLOR = { jchk: 'var(--need)', mchk: 'var(--ink-3)', jsav: 'var(--save)', msav: 'var(--save-2)', inv: 'var(--save-3)' };
+  // Colours of the accounts in the payday diagram, by position within their kind (so the v2 accounts keep theirs).
+  var ACCT_COLORS = { spend: ['var(--need)', 'var(--ink-3)'], save: ['var(--save)', 'var(--save-2)', 'var(--save-3)'] };
+  var KIND_LABEL = { spend: 'Spending', save: 'Savings' };
 
   var seq = 0;
   function nid() { seq += 1; return 'i' + Date.now().toString(36) + seq.toString(36); }
@@ -696,13 +703,14 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   var banner = blocked ? newerBanner() : (lsGet(TOUR_KEY) ? null : { kind: 'tour' });          // {kind:'import'|'error'|'info', ...}
   var pendingDelete = null;
   var pendingDeleteCat = null;
+  var pendingDeleteAcct = null; // account armed for removal
   var pendingCiDel = null;   // month of a check-in armed for deletion
   var ciView = null;        // month the check-in card shows, or null for the default
   var ciShown = null;       // month the card is currently showing (set while rendering)
   var pendingReset = false;
   var copyFallback = false;
   // A month opened from the history and armed deletes belong to the plan on screen; a new plan starts without them.
-  function resetView() { ciView = null; pendingCiDel = null; pendingDeleteCat = null; pendingDelete = null; }
+  function resetView() { ciView = null; pendingCiDel = null; pendingDeleteCat = null; pendingDeleteAcct = null; pendingDelete = null; }
 
   if (migratedOnLoad) persist();
 
@@ -728,6 +736,68 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function findCat(id) { for (var i = 0; i < state.cats.length; i++) if (state.cats[i].id === id) return state.cats[i]; return null; }
   // '' when the line has no category or points at one that no longer exists.
   function catName(id) { var ct = id ? findCat(id) : null; return ct ? (String(ct.name || '').trim() || 'Untitled category') : ''; }
+
+  /* ---------- people and accounts ---------- */
+  function findPerson(id) { for (var i = 0; i < state.people.length; i++) if (state.people[i].id === id) return state.people[i]; return null; }
+  // An empty name shows as "Person N", N being the person's place in the list.
+  function personName(id) {
+    for (var i = 0; i < state.people.length; i++) {
+      if (state.people[i].id === id) return String(state.people[i].name || '').trim() || 'Person ' + (i + 1);
+    }
+    return '';
+  }
+  // Items, check-ins and hand-edited files may name an account that no longer exists: null then.
+  function findAcct(a) { return Object.prototype.hasOwnProperty.call(state.accounts, a) && okObj(state.accounts[a]) ? state.accounts[a] : null; }
+  // '' for a Shared account, and for one whose owner no longer exists (it is treated as Shared).
+  function ownerOf(a) { var x = findAcct(a); return x && x.owner && findPerson(x.owner) ? x.owner : ''; }
+  // The accounts the app shows, in display order.
+  function acctIds() { return state.acctOrder.filter(function (a) { return !!findAcct(a); }); }
+  function acctsOfKind(kind) { return acctIds().filter(function (a) { return findAcct(a).kind === kind; }); }
+  function isKind(a, kind) { return acctsOfKind(kind).indexOf(a) >= 0; }
+  function acctName(a) { var x = findAcct(a); return x ? String(x.name == null ? '' : x.name) : 'Deleted account'; }
+  // The name, plus whose account it is unless it's Shared or the name already says so ("Checking · Alex").
+  function acctLabel(a) {
+    var name = acctName(a), o = ownerOf(a), who = o ? personName(o) : '';
+    return who && name.toLowerCase().indexOf(who.toLowerCase()) < 0 ? name + ' · ' + who : name;
+  }
+  // An account's label in the editor column. refresh() renews its text, so renaming an account or a person shows
+  // there without re-drawing the input being typed in. (The side column is re-drawn by refresh() anyway.)
+  function acctSpan(a, cls) { return '<span' + (cls ? ' class="' + cls + '"' : '') + ' data-acct-label="' + esc(a) + '">' + esc(acctLabel(a)) + '</span>'; }
+  // Options for an account menu: accounts of one kind, grouped by owner (Shared first, then people in order).
+  // A `sel` that isn't one of them (a removed account, or one of the other kind) is kept as a first, selected option,
+  // so the menu shows what the plan holds; pass null when nothing is to be selected.
+  function acctOptions(kind, sel) {
+    var ids = acctsOfKind(kind);
+    function opts(list) {
+      return list.map(function (a) { return '<option value="' + esc(a) + '"' + (a === sel ? ' selected' : '') + '>' + esc(acctName(a)) + '</option>'; }).join('');
+    }
+    var shared = ids.filter(function (a) { return !ownerOf(a); });
+    var h = shared.length ? '<optgroup label="Shared">' + opts(shared) + '</optgroup>' : '';
+    state.people.forEach(function (p) {
+      var own = ids.filter(function (a) { return ownerOf(a) === p.id; });
+      if (own.length) h += '<optgroup label="' + esc(personName(p.id)) + '" data-person="' + esc(p.id) + '">' + opts(own) + '</optgroup>';
+    });
+    if (sel !== null && ids.indexOf(sel) < 0) h = '<option value="' + esc(sel) + '" selected>' + esc(acctLabel(sel)) + '</option>' + h;
+    return h;
+  }
+  function acctColor(a) {
+    var x = findAcct(a), list = x && ACCT_COLORS[x.kind], i = list ? acctsOfKind(x.kind).indexOf(a) : -1;
+    return i < 0 ? 'var(--ink-3)' : list[i % list.length];
+  }
+  // What uses an account: items whose money it holds and incomes landing in it (in every scenario), and the yearly-costs fund.
+  function acctUses(a) {
+    var k = state.fund.acct === a ? 1 : 0;
+    state.scenarios.forEach(function (s) {
+      s.lines.forEach(function (l) { if (l.acct === a) k += 1; });
+      s.incomes.forEach(function (x) { if (x.to === a) k += 1; });
+    });
+    return k;
+  }
+  // Only an unused account can be removed, and never the last spending or the last savings account.
+  function canDeleteAcct(a) {
+    var x = findAcct(a), ids = x ? acctsOfKind(x.kind) : [];
+    return ids.indexOf(a) >= 0 && ids.length > 1 && acctUses(a) === 0;
+  }
   function isSpend(l) { return l.g === 'need' || l.g === 'want'; }
   function isYearly(l) { return isSpend(l) && l.f === 'yr'; }
   function fundOn() { return !!(state.fund && state.fund.acct); }
@@ -1047,7 +1117,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   function transfers(s, c) {
     var land = s.depositTo, items = [], moved = 0;
-    ACCT_ORDER.forEach(function (a) {
+    acctIds().forEach(function (a) {
       if (a === land) return;
       var amt = c.by[a] || 0;
       if (amt > 0.5) { items.push({ a: a, amt: amt }); moved += amt; }
@@ -1064,7 +1134,6 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function pct(v) { return isFinite(v) ? Math.round(v * 100) + '%' : '0%'; }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (ch) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]; }); }
   function when(t) { return new Date(t).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
-  function acctName(a) { return (state.accounts[a] && state.accounts[a].name) || a; }
   function status(c) {
     if (c.I <= 0 && c.P <= 0) return { tone: '', text: 'Add your income' };
     if (Math.abs(c.left) < 0.5) return { tone: 'ok', text: 'Every dollar assigned' };
@@ -1153,9 +1222,6 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       '<button class="btn ghost danger" type="button" data-act="reset">' + (pendingReset ? 'Click again to reset everything' : 'Reset to example plan') + '</button>';
   }
 
-  function optionList(list, sel) {
-    return list.map(function (a) { return '<option value="' + a + '"' + (a === sel ? ' selected' : '') + '>' + esc(acctName(a)) + '</option>'; }).join('');
-  }
   function freqOptions(sel) {
     return Object.keys(FREQ).map(function (k) { return '<option value="' + k + '"' + (k === sel ? ' selected' : '') + '>' + FREQ[k].label + '</option>'; }).join('');
   }
@@ -1166,7 +1232,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       '<div class="card-head"><h2>Income</h2><span class="meta" data-out="income-total"></span></div>' +
       '<div class="fields">' +
         '<label class="field" for="scn-name">Scenario name<input class="in" id="scn-name" data-scope="scn" data-field="name" value="' + esc(s.name) + '"></label>' +
-        '<label class="field" for="scn-dep">Paychecks are deposited into<select class="in" id="scn-dep" data-scope="scn" data-field="depositTo">' + optionList(SPEND_ACCTS, s.depositTo) + '</select></label>' +
+        '<label class="field" for="scn-dep">Paychecks are deposited into<select class="in" id="scn-dep" data-scope="scn" data-field="depositTo">' + acctOptions('spend', s.depositTo) + '</select></label>' +
       '</div><div class="rows">';
     s.incomes.forEach(function (x) {
       h += '<div class="inc-row">' +
@@ -1190,7 +1256,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
           '<input class="in c-n" id="n-' + l.id + '" data-scope="line" data-id="' + l.id + '" data-field="name" value="' + esc(l.name) + '" aria-label="Item name" title="' + esc(l.name) + '">' +
           '<div class="amt c-a"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="a-' + l.id + '" data-scope="line" data-id="' + l.id + '" data-field="amt" value="' + esc(l.amt) + '" aria-label="Amount for ' + esc(l.name) + '"></div>' +
           '<select class="in c-f" id="f-' + l.id + '" data-scope="line" data-id="' + l.id + '" data-field="f" aria-label="How often for ' + esc(l.name) + '">' + freqOptions(l.f) + '</select>' +
-          '<select class="in c-c" id="c-' + l.id + '" data-scope="line" data-id="' + l.id + '" data-field="acct" aria-label="Account for ' + esc(l.name) + '">' + optionList(G.key === 'save' ? SAVE_ACCTS : SPEND_ACCTS, l.acct) + '</select>' +
+          '<select class="in c-c" id="c-' + l.id + '" data-scope="line" data-id="' + l.id + '" data-field="acct" aria-label="Account for ' + esc(l.name) + '">' + acctOptions(G.key === 'save' ? 'save' : 'spend', l.acct) + '</select>' +
           '<span class="mo c-m" data-out="m-' + l.id + '"></span>' +
           '<button class="icon c-d" type="button" data-act="del-line" data-id="' + l.id + '" aria-label="Remove ' + esc(l.name) + '" title="Remove">×</button>' +
           '<span class="rbar" aria-hidden="true"><i data-out="b-' + l.id + '"></i></span>' +
@@ -1203,14 +1269,40 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     h += categoriesHTML(s);
     h += yearlyHTML(s);
 
-    h += '<section class="card" aria-label="Account names" data-tour="accounts"><div class="card-head"><h2>Accounts</h2><span class="meta">Rename to match your banks</span></div><div class="rows">';
-    ACCT_ORDER.forEach(function (a) {
-      var x = state.accounts[a] || { name: a, note: '' };
-      h += '<div class="acct-row"><input class="in" id="an-' + a + '" data-scope="acct" data-id="' + a + '" data-field="name" value="' + esc(x.name) + '" aria-label="Account name">' +
-        '<input class="in" id="ao-' + a + '" data-scope="acct" data-id="' + a + '" data-field="note" value="' + esc(x.note) + '" aria-label="What ' + esc(x.name) + ' is for"></div>';
+    return h + accountsHTML();
+  }
+
+  // Grouped by owner: Shared first, then each person in People order. A group with no accounts isn't shown.
+  function accountsHTML() {
+    var h = '<section class="card" aria-label="Accounts" data-tour="accounts"><div class="card-head"><h2>Accounts</h2><span class="meta">Rename to match your banks</span></div>';
+    [''].concat(state.people.map(function (p) { return p.id; })).forEach(function (o) {
+      var ids = acctIds().filter(function (a) { return ownerOf(a) === o; });
+      if (!ids.length) return;
+      h += '<div class="acct-group"><h3>' + esc(o ? personName(o) : 'Shared') + '</h3><div class="rows">' + ids.map(acctRowHTML).join('') + '</div></div>';
     });
-    h += '</div></section>';
-    return h;
+    return h + '<div class="actions">' +
+      '<button class="btn ghost add" type="button" data-act="add-acct" data-kind="spend">+ Add spending account</button>' +
+      '<button class="btn ghost add" type="button" data-act="add-acct" data-kind="save">+ Add savings account</button>' +
+      '</div></section>';
+  }
+  function acctRowHTML(a) {
+    var x = findAcct(a), o = ownerOf(a), id = esc(a), name = esc(acctName(a)), uses = acctUses(a), del;
+    if (canDeleteAcct(a)) {
+      var armed = pendingDeleteAcct === a, tip = (armed ? 'Click again to remove ' : 'Remove ') + name;
+      del = '<button class="a-d ' + (armed ? 'btn ghost danger' : 'icon') + '" id="da-' + id + '" type="button" data-act="del-acct" data-id="' + id + '" aria-label="' + tip + '" title="' + tip + '">' + (armed ? 'Remove?' : '×') + '</button>';
+    } else {
+      // No × while items, incomes or the fund use it (they'd be left pointing at nothing), or while it's the last of its kind.
+      del = '<span class="a-d faint"' + (uses ? ' title="Used by ' + uses + ' (items, incomes and the yearly-costs fund, in every scenario). Move them to another account to remove it."' : '') + '>' +
+        (uses ? 'used by ' + uses : '') + '</span>';
+    }
+    return '<div class="acct-row">' +
+      '<input class="in a-n" id="an-' + id + '" data-scope="acct" data-id="' + id + '" data-field="name" value="' + esc(x.name) + '" aria-label="Account name">' +
+      '<input class="in a-o" id="ao-' + id + '" data-scope="acct" data-id="' + id + '" data-field="note" value="' + esc(x.note) + '" aria-label="What ' + name + ' is for">' +
+      '<span class="a-k">' + KIND_LABEL[x.kind] + '</span>' +
+      '<select class="in a-w" id="aw-' + id + '" data-scope="acct" data-id="' + id + '" data-field="owner" aria-label="Whose account ' + name + ' is">' +
+        '<option value=""' + (o ? '' : ' selected') + '>Shared</option>' +
+        state.people.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === o ? ' selected' : '') + '>' + esc(personName(p.id)) + '</option>'; }).join('') +
+      '</select>' + del + '</div>';
   }
 
   function checkinHTML() {
@@ -1261,13 +1353,13 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (ci.goals.length || ci.fund) {
       h += '<h3 class="ci-sub">Savings balances at the end of ' + esc(monthLong(ci.month)) + '</h3><div class="ci-goals">';
       ci.goals.forEach(function (g) {
-        h += '<div class="ci-goal"><span class="ci-n">' + esc(g.name) + '<span class="tag">' + esc(acctName(g.acct)) + '</span></span>' +
+        h += '<div class="ci-goal"><span class="ci-n">' + esc(g.name) + acctSpan(g.acct, 'tag') + '</span>' +
           '<span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="cig-' + esc(g.line) + '" data-scope="cig" data-field="balance" data-id="' + esc(g.line) + '" value="' + esc(round2(n(g.balance))) + '" aria-label="' + esc(g.name) + ' balance at the end of ' + esc(monthLong(ci.month)) + '"></span>' +
           '<span class="ci-meta"><span>planned +' + money(n(g.planned) * n(g.months)) + '</span><span class="ci-assumed" data-out="cias-' + esc(g.line) + '"></span><span data-out="cigs-' + esc(g.line) + '"></span></span></div>';
       });
       if (ci.fund) {
         var f = ci.fund;
-        h += '<div class="ci-goal"><span class="ci-n">Yearly costs fund<span class="tag">' + esc(acctName(f.acct)) + '</span></span>' +
+        h += '<div class="ci-goal"><span class="ci-n">Yearly costs fund' + acctSpan(f.acct, 'tag') + '</span>' +
           '<span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="cif" data-scope="cif" data-field="balance" value="' + esc(round2(n(f.balance))) + '" aria-label="Yearly costs fund balance at the end of ' + esc(monthLong(ci.month)) + '"></span>' +
           '<span class="ci-meta"><span>planned +' + money(n(f.planned) * n(f.months)) + ' − ' + money(n(f.due)) + ' due</span><span class="ci-assumed" data-out="cias-fund"></span><span data-out="cigs-fund"></span></span></div>';
       }
@@ -1284,7 +1376,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       '<p class="desc">Bills that come once a year. Setting aside a twelfth each month means the money is there when they’re due.</p></div>' +
       '<div style="text-align:right"><div class="total" data-out="fund-c"></div><div class="meta">set aside a month</div></div></div>' +
       '<div class="fields"><label class="field" for="fund-acct">Set aside each month in<select class="in" id="fund-acct" data-scope="fund" data-field="acct">' +
-      '<option value=""' + (fundOn() ? '' : ' selected') + '>Don’t set money aside</option>' + optionList(SAVE_ACCTS, state.fund.acct) + '</select></label>' +
+      '<option value=""' + (fundOn() ? '' : ' selected') + '>Don’t set money aside</option>' + acctOptions('save', fundOn() ? state.fund.acct : null) + '</select></label>' +
       (fundOn() ? '<label class="field" for="fund-bal">' + (fundBalance().month ? 'Balance at end of ' + esc(monthLabel(fundBalance().month)) : 'In the fund now') + '<span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="fund-bal" data-scope="fund" data-field="balance" value="' + esc(round2(fundBalance().balance)) + '"></span></label>' : '') +
       '</div>';
     if (ys.length) {
@@ -1309,7 +1401,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       h += '<table class="hd fund-tbl"><tr class="gh"><td>Next 12 months</td><td class="r">' + (fundOn() ? 'Fund after' : '') + '</td></tr>';
       p.months.forEach(function (m) {
         h += '<tr><td><b>' + esc(monthLabel(m.key)) + '</b> ' + m.bills.map(function (b) {
-          return esc(b.name) + ' ' + money(b.amt) + (fundOn() ? ' · move it to ' + esc(acctName(b.acct)) : '');
+          return esc(b.name) + ' ' + money(b.amt) + (fundOn() ? ' · move it to ' + acctSpan(b.acct) : '');
         }).join('; ') + '</td><td class="r' + (fundOn() && m.F < -0.5 ? ' neg' : '') + '">' + (fundOn() ? money(m.F) : '') + '</td></tr>';
       });
       h += '</table>';
@@ -1433,6 +1525,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
         if (gs && l.goal && document.activeElement !== gs && n(gs.value) !== round2(goalBalance(l))) gs.value = round2(goalBalance(l));
       }
     });
+    root.querySelectorAll('[data-acct-label]').forEach(function (el) { el.textContent = acctLabel(el.getAttribute('data-acct-label')); });
     renderSaveStatus();
   }
 
@@ -1469,7 +1562,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       byAcct[ci.fund.acct].sum += n(ci.fund.balance); byAcct[ci.fund.acct].k += 1;
     }
     setOut('ci-recon', Object.keys(byAcct).filter(function (a) { return byAcct[a].k > 1; }).map(function (a) {
-      return esc(acctName(a)) + ' holds ' + money(byAcct[a].sum) + ' across these. Check that this matches the account’s balance.';
+      return acctSpan(a) + ' holds ' + money(byAcct[a].sum) + ' across these. Check that this matches the account’s balance.';
     }).join(' '));
   }
 
@@ -1543,7 +1636,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     h += '<section class="card" aria-label="Savings goals" data-tour="goals"><div class="card-head"><h2>Savings goals</h2></div>';
     if (fundOn()) {
       var fst = fundStatus(s), nY = s.lines.filter(isYearly).length;
-      h += '<div class="goals" style="margin-bottom:14px"><div class="gl" data-goal="fund"><div class="gl-top"><span>Yearly costs fund<span class="tag">' + esc(acctName(state.fund.acct)) + '</span></span>' +
+      h += '<div class="goals" style="margin-bottom:14px"><div class="gl" data-goal="fund"><div class="gl-top"><span>Yearly costs fund<span class="tag">' + esc(acctLabel(state.fund.acct)) + '</span></span>' +
         '<span><b>' + money(fundBalance().balance) + '</b></span></div><div class="gl-st">' + statusChip(fst) + '</div>' +
         '<div class="gl-sub">' + money(c.fund) + ' a month for ' + nY + ' yearly item' + (nY === 1 ? '' : 's') + '.</div></div></div>';
     }
@@ -1558,7 +1651,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
           money(gi.s) + ' a month → about ' + gi.months + ' month' + (gi.months === 1 ? '' : 's') + ', around ' + gi.date + '.';
         if (l.goal.mode === 'months') sub += ' Target is ' + n(l.goal.months) + ' × ' + money(c.g.need) + ' of monthly necessities in this scenario.';
         var gst = goalStatus(l, s, c);
-        h += '<div class="gl" data-goal="' + esc(l.id) + '"><div class="gl-top"><span>' + esc(l.name) + '<span class="tag">' + esc(acctName(l.acct)) + '</span></span><span><b>' + money(gi.B) + '</b> <span class="faint">of ' + money(gi.G) + '</span></span></div>' +
+        h += '<div class="gl" data-goal="' + esc(l.id) + '"><div class="gl-top"><span>' + esc(l.name) + '<span class="tag">' + esc(acctLabel(l.acct)) + '</span></span><span><b>' + money(gi.B) + '</b> <span class="faint">of ' + money(gi.G) + '</span></span></div>' +
           '<div class="pbar"><i style="width:' + (gi.frac * 100).toFixed(1) + '%"></i></div>' +
           (gst ? '<div class="gl-st">' + statusChip(gst) + (gst.sub ? '<span class="gl-sub">' + esc(gst.sub) + '</span>' : '') + '</div>' : '') +
           '<div class="gl-sub">' + sub + '</div></div>';
@@ -1576,7 +1669,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       h += '<tr><td><span class="hd-n">' + esc(it.name) + '</span>' +
         (it.kind === 'cat'
           ? '<span class="hd-lines">' + esc(it.lines.map(function (l) { return l.name; }).join(', ')) + '</span>'
-          : '<span class="tag">' + esc(acctName(it.lines[0].acct)) + '</span>') +
+          : '<span class="tag">' + esc(acctLabel(it.lines[0].acct)) + '</span>') +
         (it.note ? '<span class="hd-note">' + esc(it.note) + '</span>' : '') +
         '</td><td class="r">' + money(it.amt) + ' / mo</td></tr>';
     });
@@ -1616,6 +1709,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
     var focused = document.activeElement && document.activeElement.id === 'device-name';
     document.getElementById('side').innerHTML = h;
+    fitFlowLabels();
     if (focused) { var dn = document.getElementById('device-name'); if (dn) { dn.focus(); dn.setSelectionRange(dn.value.length, dn.value.length); } }
   }
 
@@ -1634,18 +1728,33 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     var paths = '', nodes = '', labels = '';
     list.forEach(function (x) {
       var yr = ys + (x.slot - x.h) / 2;
-      var col = ACCT_COLOR[x.a] || 'var(--ink-3)';
+      var col = acctColor(x.a);
       paths += '<path d="M' + X1 + ' ' + yl.toFixed(1) + ' C' + xm + ' ' + yl.toFixed(1) + ' ' + xm + ' ' + yr.toFixed(1) + ' ' + X2 + ' ' + yr.toFixed(1) +
         ' L' + X2 + ' ' + (yr + x.h).toFixed(1) + ' C' + xm + ' ' + (yr + x.h).toFixed(1) + ' ' + xm + ' ' + (yl + x.h).toFixed(1) + ' ' + X1 + ' ' + (yl + x.h).toFixed(1) + ' Z" style="fill:' + col + ';opacity:0.28"></path>';
       nodes += '<rect x="' + X2 + '" y="' + yr.toFixed(1) + '" width="8" height="' + x.h.toFixed(1) + '" rx="2" style="fill:' + col + '"></rect>';
       var cy = ys + x.slot / 2;
-      labels += '<text x="' + (X2 + 16) + '" y="' + (cy - 3).toFixed(1) + '">' + esc(x.keep ? 'Stays in ' + acctName(x.a) : acctName(x.a)) + '</text>' +
+      labels += '<text class="flow-l" x="' + (X2 + 16) + '" y="' + (cy - 3).toFixed(1) + '">' + esc(x.keep ? 'Stays in ' + acctLabel(x.a) : acctLabel(x.a)) + '</text>' +
         '<text class="amt-t" x="' + (X2 + 16) + '" y="' + (cy + 12).toFixed(1) + '">' + money(x.amt) + '</text>';
       yl += x.h; ys += x.slot + GAP;
     });
     nodes += '<rect x="0" y="' + ((H - Hl) / 2).toFixed(1) + '" width="' + X1 + '" height="' + Hl.toFixed(1) + '" rx="2" style="fill:var(--ink)"></rect>';
-    return '<p class="note">Paychecks (' + money(c.I) + ') land in <b>' + esc(acctName(t.land)) + '</b>.</p>' +
+    return '<p class="note">Paychecks (' + money(c.I) + ') land in <b>' + esc(acctLabel(t.land)) + '</b>.</p>' +
       '<svg viewBox="0 0 ' + W + ' ' + H.toFixed(0) + '" role="img" aria-label="How each paycheck is split between accounts">' + paths + nodes + labels + '</svg>';
+  }
+
+  // Account labels can be long (they carry the owner's name): shorten one that would run past the diagram's
+  // right edge. The steps list under the diagram always shows it in full.
+  function fitFlowLabels() {
+    root.querySelectorAll('.flow svg').forEach(function (svg) {
+      var W = svg.viewBox.baseVal.width;
+      svg.querySelectorAll('text.flow-l').forEach(function (t) {
+        var max = W - t.x.baseVal[0].value, s = t.textContent;
+        while (s.length > 1 && t.getComputedTextLength() > max) {
+          s = s.slice(0, -1);
+          t.textContent = s.replace(/[\s·]+$/, '') + '…';
+        }
+      });
+    });
   }
 
   function stepsHTML(s, c, t) {
@@ -1657,10 +1766,10 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
         if (v > 0.5) parts.push(G.name.toLowerCase() + ' ' + money(v));
       });
       if (fundOn() && x.a === state.fund.acct && c.fund > 0.5) parts.push('yearly costs fund ' + money(c.fund));
-      h += '<li><span>Move to <b>' + esc(acctName(x.a)) + '</b></span><b>' + money(x.amt) + '</b><span class="why">' + esc(parts.join(' + ')) + '</span></li>';
+      h += '<li><span>Move to <b>' + esc(acctLabel(x.a)) + '</b></span><b>' + money(x.amt) + '</b><span class="why">' + esc(parts.join(' + ')) + '</span></li>';
     });
     var unassigned = Math.max(t.keep - t.keepPlanned, 0);
-    h += '<li><span>Keep in <b>' + esc(acctName(t.land)) + '</b></span><b>' + money(Math.max(t.keep, 0)) + '</b><span class="why">' +
+    h += '<li><span>Keep in <b>' + esc(acctLabel(t.land)) + '</b></span><b>' + money(Math.max(t.keep, 0)) + '</b><span class="why">' +
       'planned spending ' + money(t.keepPlanned) + (unassigned > 0.5 ? ' + ' + money(unassigned) + ' not assigned yet' : '') + '</span></li>';
     h += '</ol>';
     if (t.keep < t.keepPlanned - 0.5) {
@@ -1811,9 +1920,11 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       root.querySelectorAll('select[data-field="cat"] option[value="' + id + '"]').forEach(function (o) { o.textContent = catName(id); });
     }
     else if (sc === 'acct') {
-      state.accounts[id] = state.accounts[id] || { name: id, note: '' };
-      state.accounts[id][f] = v;
-      if (f === 'name') root.querySelectorAll('select option[value="' + id + '"]').forEach(function (o) { o.textContent = v; });
+      var ac = findAcct(id); if (!ac || t.tagName === 'SELECT') return;
+      ac[f] = v;
+      // Rename it in every menu without re-drawing this input: menus group by owner, so a grouped option shows the
+      // name; an option kept for a value outside the menu's list shows the full label.
+      if (f === 'name') root.querySelectorAll('select option[value="' + id + '"]').forEach(function (o) { o.textContent = o.parentNode.tagName === 'OPTGROUP' ? acctName(id) : acctLabel(id); });
     }
     changed();
     refresh();
@@ -1828,6 +1939,12 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       return;
     }
     if (sc === 'fund' && f === 'acct') { state.fund.acct = v; changed(); rerenderEditor('fund-acct'); return; }
+    // A new owner moves the account to that person's group, and changes its label and its place in every menu.
+    if (sc === 'acct' && f === 'owner') {
+      var oa = findAcct(id); if (!oa) return;
+      oa.owner = v; changed(); rerenderEditor('aw-' + id);
+      return;
+    }
     if (sc === 'line') {
       var l = findLine(s, id); if (!l) return;
       if (f === 'due') l.due = parseInt(v, 10) || 0; else l[f] = v;
@@ -1873,6 +1990,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (act !== 'del-scn') pendingDelete = null;
     if (act !== 'reset') pendingReset = false;
     if (act !== 'del-cat') pendingDeleteCat = null;
+    if (act !== 'del-acct') pendingDeleteAcct = null;
     if (act !== 'ci-del') pendingCiDel = null;
     if (act === 'tour' || act === 'tour-start') { startTour(); return; }
     if (act === 'tour-later') { lsSet(TOUR_KEY, '1'); banner = null; renderBanner(); return; }
@@ -1909,7 +2027,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (act === 'banner-close') { banner = null; renderBanner(); return; }
     if (act === 'add-line') {
       var g = b.getAttribute('data-g');
-      var nl = L(g, g === 'save' ? 'New savings item' : 'New item', 0, 'mo', g === 'save' ? 'jsav' : 'jchk');
+      // A savings item goes to the first savings account; anything else is paid from where pay lands, else the first spending account.
+      var nl = L(g, g === 'save' ? 'New savings item' : 'New item', 0, 'mo',
+        g === 'save' ? acctsOfKind('save')[0] : (isKind(s.depositTo, 'spend') ? s.depositTo : acctsOfKind('spend')[0]));
       if (g === 'save') nl.goal = newGoal();
       var lastIdx = -1; s.lines.forEach(function (l, i) { if (l.g === g) lastIdx = i; });
       s.lines.splice(lastIdx + 1, 0, nl);
@@ -1932,11 +2052,29 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       } else { pendingDeleteCat = did; rerenderEditor('dc-' + did); }
       return;
     }
+    if (act === 'add-acct') {
+      var kind = b.getAttribute('data-kind') === 'save' ? 'save' : 'spend', na = nid();
+      state.accounts[na] = { name: kind === 'save' ? 'New savings' : 'New checking', note: '', kind: kind, owner: '' };
+      state.acctOrder.push(na);
+      changed(); rerenderEditor('an-' + na);
+      var ae = document.getElementById('an-' + na); if (ae) ae.select();
+      return;
+    }
+    if (act === 'del-acct') {
+      var da = b.getAttribute('data-id');
+      if (!canDeleteAcct(da)) return;
+      if (pendingDeleteAcct === da) {
+        delete state.accounts[da];
+        state.acctOrder = state.acctOrder.filter(function (a) { return a !== da; });
+        pendingDeleteAcct = null; changed(); rerenderEditor(null);
+      } else { pendingDeleteAcct = da; rerenderEditor('da-' + da); }
+      return;
+    }
     if (act === 'del-line') { var id = b.getAttribute('data-id'); s.lines = s.lines.filter(function (l) { return l.id !== id; }); changed(); rerenderEditor(null); return; }
     if (act === 'add-inc') {
       // Whose pay and where it lands: the first person, and where the scenario's pay already lands (so it stays pooled).
       var ni = { id: nid(), name: 'Other income', amt: 0, who: state.people[0].id,
-        to: s.incomes.length ? s.incomes[0].to : (SPEND_ACCTS.indexOf(s.depositTo) >= 0 ? s.depositTo : SPEND_ACCTS[0]) };
+        to: s.incomes.length ? s.incomes[0].to : (isKind(s.depositTo, 'spend') ? s.depositTo : acctsOfKind('spend')[0]) };
       s.incomes.push(ni); changed(); rerenderEditor('in-' + ni.id); var ie = document.getElementById('in-' + ni.id); if (ie) ie.select(); return; }
     if (act === 'del-inc') { var iid = b.getAttribute('data-id'); s.incomes = s.incomes.filter(function (x) { return x.id !== iid; }); changed(); rerenderEditor(null); return; }
     if (act === 'copy-scn') {

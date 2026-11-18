@@ -869,6 +869,110 @@ section('scenarios', async () => {
   }
 });
 
+// A small current-version plan: one person, one shared spending and one shared savings account, one empty scenario.
+// `edit` changes it before it is stored.
+function minPlan(edit) {
+  const p = {
+    v: DATA_VERSION, touched: true, modifiedAt: 0, lastSync: null, active: 'm',
+    people: [{ id: 'p1', name: 'Solo' }],
+    accounts: { c: { name: 'Checking', note: '', kind: 'spend', owner: '' }, s: { name: 'Savings', note: '', kind: 'save', owner: '' } },
+    acctOrder: ['c', 's'], fund: { acct: '', saved: 0 }, cats: [], checkins: [],
+    scenarios: [{ id: 'm', name: 'Mine', sub: '', depositTo: 'c', split: { mode: 'income', pct: {} }, incomes: [], lines: [] }],
+  };
+  if (edit) edit(p);
+  return { [PLAN_KEY]: JSON.stringify(p) };
+}
+const acctGroups = (page) => page.$$eval('[data-tour="accounts"] .acct-group h3', (els) => els.map((e) => e.textContent.trim()));
+const loadedScn = (page) => page.evaluate(() => window.__hbp.state().scenarios[0].id);
+
+section('accounts', async () => {
+  const { ctx, page } = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
+  const st = () => page.evaluate(() => window.__hbp.state());
+  const focused = () => page.evaluate(() => document.activeElement.id);
+  let groups = await acctGroups(page);
+  check('accounts are grouped by owner', groups.join() === 'Shared,Person 1', groups.join());
+  const ef = await lineId(page, 'Emergency fund');
+  const og = await page.$$eval(`#c-${ef} optgroup`, (els) => els.map((g) => `${g.label}:${Array.from(g.querySelectorAll('option')).map((o) => o.value).join('+')}`));
+  check('a savings item offers savings accounts grouped by owner', og.join() === 'Shared:jsav+inv,Person 1:msav', og.join());
+  check('the fund can only go to a savings account', (await values(page, '#fund-acct option')).join() === ',jsav,inv,msav', (await values(page, '#fund-acct option')).join());
+  check('an account in use has no ×', (await page.locator('[data-act="del-acct"][data-id="jchk"]').count()) === 0 && (await cardText(page, 'accounts')).includes('used by'));
+  // Pay lands in "My checking · Person 1": a label that long is shortened to fit the diagram (the steps show it in full).
+  const runOver = await page.$$eval('.flow svg text', (els) => els.filter((t) => t.getBBox().x + t.getBBox().width > t.ownerSVGElement.viewBox.baseVal.width + 0.5).map((t) => t.textContent));
+  check('the payday diagram’s labels fit inside it', runOver.length === 0 && (await page.locator('.steps').innerText()).includes('Keep in My checking · Person 1'), JSON.stringify(runOver));
+
+  await page.click('[data-act="add-acct"][data-kind="spend"]');
+  let s = await st();
+  const id = s.acctOrder[s.acctOrder.length - 1];
+  const acct = s.accounts[id] || {};
+  const active = await focused();
+  check('"+ Add spending account" adds a shared spending account and focuses its name',
+    acct.kind === 'spend' && acct.owner === '' && acct.name === 'New checking' && active === `an-${id}`, JSON.stringify({ id, acct, active }));
+  const internet = await lineId(page, 'Internet');
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('Bills <b>card</b>');
+  const typed = await page.evaluate(([a, l]) => {
+    const o = document.querySelector(`#c-${l} option[value="${a}"]`);
+    return { id: document.activeElement.id, value: document.activeElement.value, option: o ? o.textContent : null };
+  }, [id, internet]);
+  check('renaming an account keeps focus and renames it in the item menus',
+    typed.id === `an-${id}` && typed.value === 'Bills <b>card</b>' && typed.option === 'Bills <b>card</b>', JSON.stringify(typed));
+
+  await page.click(`[data-act="del-acct"][data-id="${id}"]`);
+  check('one click on an account’s × only asks', !!(await st()).accounts[id] && (await focused()) === `da-${id}`, await focused());
+  await page.click(`[data-act="del-acct"][data-id="${id}"]`);
+  s = await st();
+  check('an unused account is removed with two clicks', !s.accounts[id] && !s.acctOrder.includes(id), JSON.stringify(s.acctOrder));
+
+  await page.click('[data-act="add-acct"][data-kind="save"]');
+  s = await st();
+  const sv = s.accounts[s.acctOrder[s.acctOrder.length - 1]] || {};
+  check('"+ Add savings account" adds a shared savings account named "New savings"', sv.kind === 'save' && sv.owner === '' && sv.name === 'New savings', JSON.stringify(sv));
+
+  await page.selectOption('#aw-jsav', s.people[0].id);
+  check('a new owner shows in the payday plan', (await stepText(page, 'Joint savings · Person 1')) !== '');
+  groups = await page.$$eval('[data-tour="accounts"] .acct-group', (els) => els.map((g) => `${g.querySelector('h3').textContent}:${Array.from(g.querySelectorAll('input[data-field="name"]')).map((i) => i.dataset.id).join('+')}`));
+  check('changing an owner moves the account to that person and keeps focus on its owner menu',
+    groups.some((g) => g.startsWith('Person 1:') && g.includes('jsav')) && (await focused()) === 'aw-jsav', `${groups.join()} | ${await focused()}`);
+
+  await page.click('[data-act="ci-start"]'); // October
+  await page.click('#an-jsav');
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('Rainy day');
+  const tag = await page.evaluate(() => ({ text: document.querySelector('[data-tour="checkin"] [data-acct-label="jsav"]').textContent, focus: document.activeElement.id }));
+  check('renaming an account renames its label in the check-in as you type', tag.text === 'Rainy day · Person 1' && tag.focus === 'an-jsav', JSON.stringify(tag));
+  // The check-in keeps the account its goals were saved in, even after that account is removed.
+  for (const tab of ['now', 'later']) {
+    await page.click(`#tabs [data-act="tab"][data-id="${tab}"]`);
+    await page.selectOption(`#c-${await lineId(page, 'Fun & vacation')}`, 'jsav');
+  }
+  await page.click('#tabs [data-act="tab"][data-id="now"]');
+  await page.click('[data-act="del-acct"][data-id="msav"]');
+  await page.click('[data-act="del-acct"][data-id="msav"]');
+  const ci = await cardText(page, 'checkin');
+  check('a check-in naming a removed account says "Deleted account"',
+    !(await st()).accounts.msav && ci.includes('Deleted account') && !ci.includes('msav'), ci.slice(0, 300));
+  await ctx.close();
+
+  const m = await openPage({ storage: minPlan() });
+  check('the last spending and the last savings account cannot be removed',
+    (await loadedScn(m.page)) === 'm' && (await m.page.locator('[data-act="del-acct"]').count()) === 0);
+  await m.ctx.close();
+
+  const g = await openPage({ storage: minPlan((p) => { p.accounts.s.owner = 'ghost'; }) });
+  groups = await acctGroups(g.page);
+  check('an account whose owner is gone is listed as shared', (await loadedScn(g.page)) === 'm' && groups.join() === 'Shared', groups.join());
+  await g.ctx.close();
+
+  // An item's account is not checked on load, so it may name one that doesn't exist, even with markup in it.
+  const bad = 'gone"><i id="pwn">x</i>';
+  const d = await openPage({ storage: minPlan((p) => { p.scenarios[0].lines.push({ id: 'l1', g: 'need', name: 'Rent', amt: 100, f: 'mo', acct: bad, cat: '', due: 0 }); }) });
+  const shown = await d.page.evaluate(() => { const sel = document.getElementById('c-l1'); return sel ? { value: sel.value, text: sel.selectedOptions[0].textContent } : null; });
+  check('an item naming a missing account shows "Deleted account" and keeps its value',
+    (await loadedScn(d.page)) === 'm' && !!shown && shown.value === bad && shown.text === 'Deleted account' &&
+    (await d.page.evaluate(() => !document.getElementById('pwn'))), JSON.stringify(shown));
+  await d.ctx.close();
+});
+
 // Two windows of the app on one device share localStorage. Opens both in one browser context.
 async function twoWindows(opts = {}) {
   const { ctx, page: a } = await openPage(opts);
