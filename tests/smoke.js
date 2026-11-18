@@ -123,11 +123,11 @@ function swReady(page) {
   ]));
 }
 
-// lastSync, modifiedAt and touched are rewritten on import by design.
 // The example plan as it was in v2, stored as the device's plan, so example-dependent sections do not follow later example changes.
 const oldPlan = () => JSON.parse(fs.readFileSync(FIXTURE_V2, 'utf8')).state;
 const OLD = () => ({ [PLAN_KEY]: JSON.stringify(oldPlan()) });
 
+// lastSync, modifiedAt and touched are rewritten on import by design.
 function withoutSyncFields(state) {
   const copy = JSON.parse(JSON.stringify(state));
   delete copy.lastSync; delete copy.modifiedAt; delete copy.touched;

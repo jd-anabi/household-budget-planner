@@ -7,27 +7,27 @@
     "v": 2,
     "cats": [
       {
-        "id": "imwj7og001",
+        "id": "imvxln6o01",
         "name": "Bills & utilities"
       },
       {
-        "id": "imwj7og002",
+        "id": "imvxln6o02",
         "name": "Groceries"
       },
       {
-        "id": "imwj7og003",
+        "id": "imvxln6o03",
         "name": "Transportation"
       },
       {
-        "id": "imwj7og004",
+        "id": "imvxln6o04",
         "name": "Eating out & fun"
       },
       {
-        "id": "imwj7og005",
+        "id": "imvxln6o05",
         "name": "Personal"
       },
       {
-        "id": "imwj7og006",
+        "id": "imvxln6o06",
         "name": "Gifts"
       }
     ],
@@ -70,109 +70,109 @@
         "depositTo": "mchk",
         "incomes": [
           {
-            "id": "imwj7og007",
+            "id": "imvxln6o07",
             "name": "My take-home pay",
             "amt": 4000
           },
           {
-            "id": "imwj7og008",
+            "id": "imvxln6o08",
             "name": "Partner take-home pay",
             "amt": 0
           }
         ],
         "lines": [
           {
-            "id": "imwj7og009",
+            "id": "imvxln6o09",
             "g": "need",
             "name": "Rent (not paying yet)",
             "amt": 0,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og001",
+            "cat": "imvxln6o01",
             "due": 0
           },
           {
-            "id": "imwj7og00a",
+            "id": "imvxln6o0a",
             "g": "need",
             "name": "Utilities (electric, gas, water)",
             "amt": 120,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og001",
+            "cat": "imvxln6o01",
             "due": 0
           },
           {
-            "id": "imwj7og00b",
+            "id": "imvxln6o0b",
             "g": "need",
             "name": "Internet",
             "amt": 60,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og001",
+            "cat": "imvxln6o01",
             "due": 0
           },
           {
-            "id": "imwj7og00c",
+            "id": "imvxln6o0c",
             "g": "need",
             "name": "Phone",
             "amt": 80,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og001",
+            "cat": "imvxln6o01",
             "due": 0
           },
           {
-            "id": "imwj7og00d",
+            "id": "imvxln6o0d",
             "g": "need",
             "name": "Groceries & household supplies",
             "amt": 600,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og002",
+            "cat": "imvxln6o02",
             "due": 0
           },
           {
-            "id": "imwj7og00e",
+            "id": "imvxln6o0e",
             "g": "need",
             "name": "Gas, transit & parking",
             "amt": 150,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og003",
+            "cat": "imvxln6o03",
             "due": 0
           },
           {
-            "id": "imwj7og00f",
+            "id": "imvxln6o0f",
             "g": "need",
             "name": "Insurance (car, renters)",
             "amt": 100,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og001",
+            "cat": "imvxln6o01",
             "due": 0
           },
           {
-            "id": "imwj7og00g",
+            "id": "imvxln6o0g",
             "g": "need",
             "name": "Health costs (copays, prescriptions)",
             "amt": 50,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og005",
+            "cat": "imvxln6o05",
             "due": 0
           },
           {
-            "id": "imwj7og00h",
+            "id": "imvxln6o0h",
             "g": "need",
             "name": "Car registration & maintenance",
             "amt": 600,
             "f": "yr",
             "acct": "jchk",
-            "cat": "imwj7og003",
+            "cat": "imvxln6o03",
             "due": 3
           },
           {
-            "id": "imwj7og00i",
+            "id": "imvxln6o0i",
             "g": "save",
             "name": "Emergency fund",
             "amt": 700,
@@ -187,7 +187,7 @@
             }
           },
           {
-            "id": "imwj7og00j",
+            "id": "imvxln6o0j",
             "g": "save",
             "name": "Fun & vacation",
             "amt": 300,
@@ -202,7 +202,7 @@
             }
           },
           {
-            "id": "imwj7og00k",
+            "id": "imvxln6o0k",
             "g": "save",
             "name": "Move-in fund (deposit, first month, movers)",
             "amt": 400,
@@ -217,7 +217,7 @@
             }
           },
           {
-            "id": "imwj7og00l",
+            "id": "imvxln6o0l",
             "g": "save",
             "name": "Extra retirement / investing",
             "amt": 0,
@@ -225,67 +225,67 @@
             "acct": "inv"
           },
           {
-            "id": "imwj7og00m",
+            "id": "imvxln6o0m",
             "g": "want",
             "name": "Dining out & takeout",
             "amt": 250,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og004",
+            "cat": "imvxln6o04",
             "due": 0
           },
           {
-            "id": "imwj7og00n",
+            "id": "imvxln6o0n",
             "g": "want",
             "name": "Entertainment & outings",
             "amt": 120,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og004",
+            "cat": "imvxln6o04",
             "due": 0
           },
           {
-            "id": "imwj7og00o",
+            "id": "imvxln6o0o",
             "g": "want",
             "name": "Subscriptions (streaming, apps)",
             "amt": 50,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og004",
+            "cat": "imvxln6o04",
             "due": 0
           },
           {
-            "id": "imwj7og00p",
+            "id": "imvxln6o0p",
             "g": "want",
             "name": "Shopping & clothing",
             "amt": 120,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og005",
+            "cat": "imvxln6o05",
             "due": 0
           },
           {
-            "id": "imwj7og00q",
+            "id": "imvxln6o0q",
             "g": "want",
             "name": "Personal care",
             "amt": 60,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og005",
+            "cat": "imvxln6o05",
             "due": 0
           },
           {
-            "id": "imwj7og00r",
+            "id": "imvxln6o0r",
             "g": "want",
             "name": "Gifts & holidays",
             "amt": 800,
             "f": "yr",
             "acct": "jchk",
-            "cat": "imwj7og006",
+            "cat": "imvxln6o06",
             "due": 12
           },
           {
-            "id": "imwj7og00s",
+            "id": "imvxln6o0s",
             "g": "want",
             "name": "Personal spending: me",
             "amt": 150,
@@ -295,7 +295,7 @@
             "due": 0
           },
           {
-            "id": "imwj7og00t",
+            "id": "imvxln6o0t",
             "g": "want",
             "name": "Personal spending: partner",
             "amt": 150,
@@ -305,7 +305,7 @@
             "due": 0
           },
           {
-            "id": "imwj7og00u",
+            "id": "imvxln6o0u",
             "g": "want",
             "name": "Buffer for surprises",
             "amt": 100,
@@ -323,109 +323,109 @@
         "depositTo": "jchk",
         "incomes": [
           {
-            "id": "imwj7og00v",
+            "id": "imvxln6o0v",
             "name": "My take-home pay",
             "amt": 4000
           },
           {
-            "id": "imwj7og00w",
+            "id": "imvxln6o0w",
             "name": "Partner take-home pay",
             "amt": 0
           }
         ],
         "lines": [
           {
-            "id": "imwj7og00x",
+            "id": "imvxln6o0x",
             "g": "need",
             "name": "Rent",
             "amt": 2500,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og001",
+            "cat": "imvxln6o01",
             "due": 0
           },
           {
-            "id": "imwj7og00y",
+            "id": "imvxln6o0y",
             "g": "need",
             "name": "Utilities (electric, gas, water)",
             "amt": 150,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og001",
+            "cat": "imvxln6o01",
             "due": 0
           },
           {
-            "id": "imwj7og00z",
+            "id": "imvxln6o0z",
             "g": "need",
             "name": "Internet",
             "amt": 60,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og001",
+            "cat": "imvxln6o01",
             "due": 0
           },
           {
-            "id": "imwj7og0010",
+            "id": "imvxln6o010",
             "g": "need",
             "name": "Phone",
             "amt": 80,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og001",
+            "cat": "imvxln6o01",
             "due": 0
           },
           {
-            "id": "imwj7og0011",
+            "id": "imvxln6o011",
             "g": "need",
             "name": "Groceries & household supplies",
             "amt": 650,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og002",
+            "cat": "imvxln6o02",
             "due": 0
           },
           {
-            "id": "imwj7og0012",
+            "id": "imvxln6o012",
             "g": "need",
             "name": "Gas, transit & parking",
             "amt": 200,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og003",
+            "cat": "imvxln6o03",
             "due": 0
           },
           {
-            "id": "imwj7og0013",
+            "id": "imvxln6o013",
             "g": "need",
             "name": "Insurance (car, renters)",
             "amt": 130,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og001",
+            "cat": "imvxln6o01",
             "due": 0
           },
           {
-            "id": "imwj7og0014",
+            "id": "imvxln6o014",
             "g": "need",
             "name": "Health costs (copays, prescriptions)",
             "amt": 50,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og005",
+            "cat": "imvxln6o05",
             "due": 0
           },
           {
-            "id": "imwj7og0015",
+            "id": "imvxln6o015",
             "g": "need",
             "name": "Car registration & maintenance",
             "amt": 600,
             "f": "yr",
             "acct": "jchk",
-            "cat": "imwj7og003",
+            "cat": "imvxln6o03",
             "due": 3
           },
           {
-            "id": "imwj7og0016",
+            "id": "imvxln6o016",
             "g": "save",
             "name": "Emergency fund",
             "amt": 700,
@@ -440,7 +440,7 @@
             }
           },
           {
-            "id": "imwj7og0017",
+            "id": "imvxln6o017",
             "g": "save",
             "name": "Fun & vacation",
             "amt": 400,
@@ -455,7 +455,7 @@
             }
           },
           {
-            "id": "imwj7og0018",
+            "id": "imvxln6o018",
             "g": "save",
             "name": "Extra retirement / investing",
             "amt": 0,
@@ -463,67 +463,67 @@
             "acct": "inv"
           },
           {
-            "id": "imwj7og0019",
+            "id": "imvxln6o019",
             "g": "want",
             "name": "Dining out & takeout",
             "amt": 300,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og004",
+            "cat": "imvxln6o04",
             "due": 0
           },
           {
-            "id": "imwj7og001a",
+            "id": "imvxln6o01a",
             "g": "want",
             "name": "Entertainment & outings",
             "amt": 150,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og004",
+            "cat": "imvxln6o04",
             "due": 0
           },
           {
-            "id": "imwj7og001b",
+            "id": "imvxln6o01b",
             "g": "want",
             "name": "Subscriptions (streaming, apps)",
             "amt": 50,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og004",
+            "cat": "imvxln6o04",
             "due": 0
           },
           {
-            "id": "imwj7og001c",
+            "id": "imvxln6o01c",
             "g": "want",
             "name": "Shopping & clothing",
             "amt": 150,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og005",
+            "cat": "imvxln6o05",
             "due": 0
           },
           {
-            "id": "imwj7og001d",
+            "id": "imvxln6o01d",
             "g": "want",
             "name": "Personal care",
             "amt": 60,
             "f": "mo",
             "acct": "jchk",
-            "cat": "imwj7og005",
+            "cat": "imvxln6o05",
             "due": 0
           },
           {
-            "id": "imwj7og001e",
+            "id": "imvxln6o01e",
             "g": "want",
             "name": "Gifts & holidays",
             "amt": 800,
             "f": "yr",
             "acct": "jchk",
-            "cat": "imwj7og006",
+            "cat": "imvxln6o06",
             "due": 12
           },
           {
-            "id": "imwj7og001f",
+            "id": "imvxln6o01f",
             "g": "want",
             "name": "Personal spending: me",
             "amt": 200,
@@ -533,7 +533,7 @@
             "due": 0
           },
           {
-            "id": "imwj7og001g",
+            "id": "imvxln6o01g",
             "g": "want",
             "name": "Personal spending: partner",
             "amt": 200,
@@ -543,7 +543,7 @@
             "due": 0
           },
           {
-            "id": "imwj7og001h",
+            "id": "imvxln6o01h",
             "g": "want",
             "name": "Buffer for surprises",
             "amt": 150,
