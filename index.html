@@ -1274,6 +1274,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   // Grouped by owner: Shared first, then each person in People order. A group with no accounts isn't shown.
   function accountsHTML() {
+    // An account armed for removal that something now uses (an item, an income or the fund moved onto it) is disarmed.
+    if (pendingDeleteAcct && !canDeleteAcct(pendingDeleteAcct)) pendingDeleteAcct = null;
     var h = '<section class="card" aria-label="Accounts" data-tour="accounts"><div class="card-head"><h2>Accounts</h2><span class="meta">Rename to match your banks</span></div>';
     [''].concat(state.people.map(function (p) { return p.id; })).forEach(function (o) {
       var ids = acctIds().filter(function (a) { return ownerOf(a) === o; });
@@ -1949,7 +1951,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       var l = findLine(s, id); if (!l) return;
       if (f === 'due') l.due = parseInt(v, 10) || 0; else l[f] = v;
       changed();
-      if (f === 'f') rerenderEditor('f-' + id); else refresh();
+      // How often moves an item in or out of the yearly card; its account changes what the Accounts card lets you remove.
+      if (f === 'f' || f === 'acct') rerenderEditor(t.id); else refresh();
     }
     else if (sc === 'scn') { s[f] = v; changed(); refresh(); }
     else if (sc === 'goal') {

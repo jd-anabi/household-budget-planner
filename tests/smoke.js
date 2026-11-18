@@ -945,8 +945,7 @@ section('accounts', async () => {
     await page.click(`#tabs [data-act="tab"][data-id="${tab}"]`);
     await page.selectOption(`#c-${await lineId(page, 'Fun & vacation')}`, 'jsav');
   }
-  await page.click('#tabs [data-act="tab"][data-id="now"]');
-  await page.click('[data-act="del-acct"][data-id="msav"]');
+  await page.click('[data-act="del-acct"][data-id="msav"]'); // its × shows as soon as its last item moves off
   await page.click('[data-act="del-acct"][data-id="msav"]');
   const ci = await cardText(page, 'checkin');
   check('a check-in naming a removed account says "Deleted account"',
@@ -971,6 +970,29 @@ section('accounts', async () => {
     (await loadedScn(d.page)) === 'm' && !!shown && shown.value === bad && shown.text === 'Deleted account' &&
     (await d.page.evaluate(() => !document.getElementById('pwn'))), JSON.stringify(shown));
   await d.ctx.close();
+
+  // The card follows an item's account as it changes, with no tab switch or reload in between.
+  const u = await openPage({ storage: minPlan((p) => {
+    p.accounts.c2 = { name: 'Bills', note: '', kind: 'spend', owner: '' };
+    p.acctOrder.splice(1, 0, 'c2');
+    p.scenarios[0].lines.push({ id: 'l1', g: 'need', name: 'Rent', amt: 100, f: 'mo', acct: 'c2', cat: '', due: 0 });
+  }) });
+  const end = (a) => u.page.evaluate((x) => document.getElementById(`an-${x}`).closest('.acct-row').querySelector('.a-d').textContent.trim(), a);
+  const before = [await end('c'), await end('c2')];
+  await u.page.selectOption('#c-l1', 'c');
+  const after = { c: await end('c'), c2: await end('c2'), focus: await u.page.evaluate(() => document.activeElement.id) };
+  check('moving an item off an account shows its × at once, and keeps focus on the item’s menu',
+    (await loadedScn(u.page)) === 'm' && before.join() === '×,used by 1' && after.c === 'used by 1' && after.c2 === '×' && after.focus === 'c-l1',
+    JSON.stringify({ before, after }));
+  await u.page.click('[data-act="del-acct"][data-id="c2"]');
+  const armed = await end('c2');
+  await u.page.selectOption('#c-l1', 'c2');
+  const used = await end('c2');
+  await u.page.selectOption('#c-l1', 'c');
+  const freed = await end('c2');
+  check('an account armed for removal that becomes used is disarmed', armed === 'Remove?' && used === 'used by 1' && freed === '×',
+    JSON.stringify({ armed, used, freed }));
+  await u.ctx.close();
 });
 
 // Two windows of the app on one device share localStorage. Opens both in one browser context.
