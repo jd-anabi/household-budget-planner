@@ -26,6 +26,7 @@ const PLAN_KEY = 'household-budget-planner:plan:v1';
 const BACKUP_KEY = 'household-budget-planner:plan:v1-backup';
 const DATA_VERSION = 2; // Bump with the data model, and add a check that an older plan file still imports.
 const FIXTURE_V1 = path.join(__dirname, 'fixtures', 'plan-v1.json');
+const FIXTURE_V2 = path.join(__dirname, 'fixtures', 'plan-v2.json');
 const SHOTS = process.argv[2] ? path.resolve(process.argv[2]) : null;
 const ONLY = (process.env.ONLY || '').split(',').map((s) => s.trim()).filter(Boolean);
 const AMT = 'input[data-field="amt"]';
@@ -123,6 +124,10 @@ function swReady(page) {
 }
 
 // lastSync, modifiedAt and touched are rewritten on import by design.
+// The example plan as it was in v2, stored as the device's plan, so example-dependent sections do not follow later example changes.
+const oldPlan = () => JSON.parse(fs.readFileSync(FIXTURE_V2, 'utf8')).state;
+const OLD = () => ({ [PLAN_KEY]: JSON.stringify(oldPlan()) });
+
 function withoutSyncFields(state) {
   const copy = JSON.parse(JSON.stringify(state));
   delete copy.lastSync; delete copy.modifiedAt; delete copy.touched;
@@ -319,7 +324,7 @@ const lineId = (page, name) => page.evaluate((n) => {
 const catId = (page, name) => page.evaluate((n) => { const c = window.__hbp.state().cats.find((x) => x.name === n); return c && c.id; }, name);
 
 section('categories', async () => {
-  const { ctx, page } = await openPage({});
+  const { ctx, page } = await openPage({ storage: OLD() });
   let rows = await hdRows(page);
   const bills = rows.find((r) => r.name === 'Bills & utilities');
   check('Honeydue list has a Bills & utilities row of $360', !!bills && bills.amt === '$360 / mo', JSON.stringify(bills));
@@ -352,7 +357,7 @@ section('categories', async () => {
     rows.some((r) => r.name === 'Groceries & household supplies' && r.amt === '$600 / mo') && !offered, JSON.stringify(rows.map((r) => r.name)));
   await ctx.close();
 
-  const phone = await openPage({ viewport: { width: 390, height: 844 } });
+  const phone = await openPage({ storage: OLD(), viewport: { width: 390, height: 844 } });
   const firstCat = await phone.page.evaluate(() => window.__hbp.state().cats[0].id);
   await phone.page.fill(`#cn-${firstCat}`, 'W'.repeat(60));
   const overflow = await phone.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -365,7 +370,7 @@ const values = (page, sel) => page.$$eval(sel, (els) => els.map((e) => e.value))
 const countText = (page, sel, text) => page.$$eval(sel, (els, t) => els.filter((e) => e.textContent.includes(t)).length, text);
 
 section('checkin', async () => {
-  const { ctx, page } = await openPage({ date: '2026-11-16T12:00' });
+  const { ctx, page } = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
   const head = () => page.locator('[data-tour="checkin"] h2').innerText();
   check('a due check-in names last month', (await head()).includes('October check-in'), await head());
   const summary = () => page.locator('#summary').innerText();
@@ -419,7 +424,7 @@ section('checkin', async () => {
 });
 
 section('goals', async () => {
-  const { ctx, page } = await openPage({ date: '2026-11-16T12:00' });
+  const { ctx, page } = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
   const r = await page.evaluate(() => {
     const h = window.__hbp;
     return [
@@ -469,7 +474,7 @@ const stepText = (page, acct) => page.evaluate((a) => {
 }, acct);
 
 section('yearly', async () => {
-  const { ctx, page } = await openPage({ date: '2026-11-16T12:00' });
+  const { ctx, page } = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
   const bills = [{ name: 'Car', amt: 600, due: 3 }, { name: 'Gifts', amt: 800, due: 12 }];
   const p = await page.evaluate((b) => [window.__hbp.projectFund(0, '2026-10', 1400 / 12, b), window.__hbp.projectFund(117, '2026-10', 1400 / 12, b)], bills);
   check('fund: first-year shortfall', Math.abs(p[0].S - 816.67) < 0.01 && p[0].minKey === '2027-03' &&
@@ -510,7 +515,7 @@ section('yearly', async () => {
   await ctx.close();
 
   // A bill bigger than what's in the fund leaves it at $0 (the rest is paid from checking), never at a negative balance.
-  const d = await openPage({ date: '2026-12-10T12:00' });
+  const d = await openPage({ storage: OLD(), date: '2026-12-10T12:00' });
   await d.page.selectOption('#ci-month', '2026-12'); // the $800 December bill, $117 set aside, nothing saved yet
   await d.page.click('[data-act="ci-start"]');
   const fb = () => d.page.evaluate(() => window.__hbp.state().checkins[0].fund.balance);
@@ -577,7 +582,7 @@ section('tour', async () => {
 });
 
 section('retake', async () => {
-  const { ctx, page } = await openPage({ date: '2026-11-16T12:00' });
+  const { ctx, page } = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
   await page.click('[data-act="ci-start"]');
   const me = await page.evaluate(() => window.__hbp.state().checkins[0].spend.findIndex((r) => r.name === 'Personal spending: me'));
   await page.fill(`#cia-${me}`, '210');
@@ -595,7 +600,7 @@ section('retake', async () => {
 
   // Re-taking keeps the fund row's months, so the bills due must be counted over those same months,
   // even after the earlier check-in it was counted from is deleted.
-  const b = await openPage({ date: '2026-11-16T12:00' });
+  const b = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
   await b.page.fill('#fund-bal', '1000');
   await b.page.click('[data-act="ci-start"]'); // October
   await b.page.waitForTimeout(500);
@@ -616,7 +621,7 @@ section('retake', async () => {
 
 // Check-in buttons that re-draw the card keep keyboard focus on a sensible control instead of dropping it to the page.
 section('focus', async () => {
-  const { ctx, page } = await openPage({ date: '2026-11-16T12:00' });
+  const { ctx, page } = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
   const focused = () => page.evaluate(() => { const a = document.activeElement; return { act: a.dataset.act || a.tagName, id: a.dataset.id, text: a.textContent.trim().slice(0, 60) }; });
   const press = async (sel) => { await page.locator(sel).focus(); await page.keyboard.press('Enter'); return focused(); };
   await page.click('[data-act="ci-start"]'); // October
@@ -646,7 +651,7 @@ section('focus', async () => {
 // A month opened from the check-in history belongs to the plan it came from: import and reset close it.
 section('resets', async () => {
   const viewingOctober = async () => {
-    const o = await openPage({ date: '2026-11-16T12:00' });
+    const o = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
     await o.page.click('[data-act="ci-start"]'); // October
     await o.page.waitForTimeout(500);
     await o.page.clock.setFixedTime(new Date('2026-12-05T12:00'));
@@ -672,7 +677,7 @@ section('resets', async () => {
 });
 
 section('first-checkin', async () => {
-  const { ctx, page } = await openPage({ date: '2026-11-16T12:00' });
+  const { ctx, page } = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
   const mv = await lineId(page, 'Move-in fund (deposit, first month, movers)');
   const ef = await lineId(page, 'Emergency fund');
   await page.selectOption(`#gbm-${mv}`, '06');
@@ -721,7 +726,7 @@ section('import-safety', async () => {
 });
 
 section('scenarios', async () => {
-  const { ctx, page } = await openPage({});
+  const { ctx, page } = await openPage({ storage: OLD() });
   const st = () => page.evaluate(() => window.__hbp.state());
   const ids = async () => (await st()).scenarios.map((x) => x.id).join();
   const del = (id) => page.locator(`[data-act="del-scn"][data-id="${id}"]`);
@@ -757,7 +762,7 @@ section('scenarios', async () => {
   await ctx.close();
 
   for (const scheme of ['light', 'dark']) {
-    const ph = await openPage({ viewport: { width: 390, height: 844 }, colorScheme: scheme });
+    const ph = await openPage({ storage: OLD(), viewport: { width: 390, height: 844 }, colorScheme: scheme });
     for (let i = 0; i < 3; i++) await ph.page.click('[data-act="new-scn"]');
     await ph.page.locator('[data-act="del-scn"]').nth(1).click();
     const overflow = await ph.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -795,8 +800,9 @@ section('two-windows', async () => {
   await w.a.click('[data-act="ci-start"]');
   const saved = await until(w.a, (k) => { try { return JSON.parse(localStorage.getItem(k)).checkins.length === 1; } catch (e) { return false; } }, PLAN_KEY);
   check('a check-in started in one window is saved', saved);
+  const rows = await w.a.evaluate((k) => JSON.parse(localStorage.getItem(k)).checkins[0].spend.length, PLAN_KEY);
   check('the other window shows it without a reload',
-    await until(w.b, () => document.querySelectorAll('input[data-scope="ci"][data-field="actual"]').length === 10));
+    await until(w.b, (n) => document.querySelectorAll('input[data-scope="ci"][data-field="actual"]').length === n, rows));
   check('the other window says it was updated', await bannerHas(w.b, 'Updated from another window'));
   check('a click-twice confirm armed before the update is disarmed', !(await w.b.locator('#foot').innerText()).includes('Click again'));
   await w.b.locator(AMT).first().fill('2222');
@@ -896,8 +902,9 @@ section('bfcache', async () => {
         await until(a, (k) => { try { return JSON.parse(localStorage.getItem(k)).checkins.length === 1; } catch (e) { return false; } }, PLAN_KEY);
       });
       check(`${label}: the page comes back from the back/forward cache`, cached);
+      const rows = await a.evaluate((k) => JSON.parse(localStorage.getItem(k)).checkins[0].spend.length, PLAN_KEY);
       check(`${label}: it shows the check-in saved while it was away`,
-        await until(b, () => document.querySelectorAll('input[data-scope="ci"][data-field="actual"]').length === 10));
+        await until(b, (n) => document.querySelectorAll('input[data-scope="ci"][data-field="actual"]').length === n, rows));
       check(`${label}: and says it was updated`, await bannerHas(b, 'Updated from another window'));
       if (drop) {
         await b.click('[data-act="banner-close"]');

@@ -1,0 +1,559 @@
+{
+  "app": "household-budget-planner",
+  "v": 2,
+  "exportedAt": "2026-11-16T20:00:00.000Z",
+  "exportedBy": "",
+  "state": {
+    "v": 2,
+    "cats": [
+      {
+        "id": "imwj7og001",
+        "name": "Bills & utilities"
+      },
+      {
+        "id": "imwj7og002",
+        "name": "Groceries"
+      },
+      {
+        "id": "imwj7og003",
+        "name": "Transportation"
+      },
+      {
+        "id": "imwj7og004",
+        "name": "Eating out & fun"
+      },
+      {
+        "id": "imwj7og005",
+        "name": "Personal"
+      },
+      {
+        "id": "imwj7og006",
+        "name": "Gifts"
+      }
+    ],
+    "checkins": [],
+    "fund": {
+      "acct": "jsav",
+      "saved": 0
+    },
+    "touched": false,
+    "modifiedAt": 0,
+    "lastSync": null,
+    "active": "now",
+    "accounts": {
+      "jchk": {
+        "name": "Joint checking",
+        "note": "Shared bills"
+      },
+      "mchk": {
+        "name": "My checking",
+        "note": "My own spending"
+      },
+      "jsav": {
+        "name": "Joint savings",
+        "note": "Emergency fund"
+      },
+      "msav": {
+        "name": "My savings",
+        "note": "Fun & vacation"
+      },
+      "inv": {
+        "name": "Retirement / investing",
+        "note": "IRA or brokerage"
+      }
+    },
+    "scenarios": [
+      {
+        "id": "now",
+        "name": "Now",
+        "sub": "One income, no rent yet",
+        "depositTo": "mchk",
+        "incomes": [
+          {
+            "id": "imwj7og007",
+            "name": "My take-home pay",
+            "amt": 4000
+          },
+          {
+            "id": "imwj7og008",
+            "name": "Partner take-home pay",
+            "amt": 0
+          }
+        ],
+        "lines": [
+          {
+            "id": "imwj7og009",
+            "g": "need",
+            "name": "Rent (not paying yet)",
+            "amt": 0,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og001",
+            "due": 0
+          },
+          {
+            "id": "imwj7og00a",
+            "g": "need",
+            "name": "Utilities (electric, gas, water)",
+            "amt": 120,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og001",
+            "due": 0
+          },
+          {
+            "id": "imwj7og00b",
+            "g": "need",
+            "name": "Internet",
+            "amt": 60,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og001",
+            "due": 0
+          },
+          {
+            "id": "imwj7og00c",
+            "g": "need",
+            "name": "Phone",
+            "amt": 80,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og001",
+            "due": 0
+          },
+          {
+            "id": "imwj7og00d",
+            "g": "need",
+            "name": "Groceries & household supplies",
+            "amt": 600,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og002",
+            "due": 0
+          },
+          {
+            "id": "imwj7og00e",
+            "g": "need",
+            "name": "Gas, transit & parking",
+            "amt": 150,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og003",
+            "due": 0
+          },
+          {
+            "id": "imwj7og00f",
+            "g": "need",
+            "name": "Insurance (car, renters)",
+            "amt": 100,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og001",
+            "due": 0
+          },
+          {
+            "id": "imwj7og00g",
+            "g": "need",
+            "name": "Health costs (copays, prescriptions)",
+            "amt": 50,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og005",
+            "due": 0
+          },
+          {
+            "id": "imwj7og00h",
+            "g": "need",
+            "name": "Car registration & maintenance",
+            "amt": 600,
+            "f": "yr",
+            "acct": "jchk",
+            "cat": "imwj7og003",
+            "due": 3
+          },
+          {
+            "id": "imwj7og00i",
+            "g": "save",
+            "name": "Emergency fund",
+            "amt": 700,
+            "f": "mo",
+            "acct": "jsav",
+            "goal": {
+              "mode": "months",
+              "months": 6,
+              "amount": 0,
+              "saved": 0,
+              "by": ""
+            }
+          },
+          {
+            "id": "imwj7og00j",
+            "g": "save",
+            "name": "Fun & vacation",
+            "amt": 300,
+            "f": "mo",
+            "acct": "msav",
+            "goal": {
+              "mode": "amount",
+              "months": 6,
+              "amount": 3000,
+              "saved": 0,
+              "by": ""
+            }
+          },
+          {
+            "id": "imwj7og00k",
+            "g": "save",
+            "name": "Move-in fund (deposit, first month, movers)",
+            "amt": 400,
+            "f": "mo",
+            "acct": "jsav",
+            "goal": {
+              "mode": "amount",
+              "months": 6,
+              "amount": 6000,
+              "saved": 0,
+              "by": "2027-11"
+            }
+          },
+          {
+            "id": "imwj7og00l",
+            "g": "save",
+            "name": "Extra retirement / investing",
+            "amt": 0,
+            "f": "mo",
+            "acct": "inv"
+          },
+          {
+            "id": "imwj7og00m",
+            "g": "want",
+            "name": "Dining out & takeout",
+            "amt": 250,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og004",
+            "due": 0
+          },
+          {
+            "id": "imwj7og00n",
+            "g": "want",
+            "name": "Entertainment & outings",
+            "amt": 120,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og004",
+            "due": 0
+          },
+          {
+            "id": "imwj7og00o",
+            "g": "want",
+            "name": "Subscriptions (streaming, apps)",
+            "amt": 50,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og004",
+            "due": 0
+          },
+          {
+            "id": "imwj7og00p",
+            "g": "want",
+            "name": "Shopping & clothing",
+            "amt": 120,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og005",
+            "due": 0
+          },
+          {
+            "id": "imwj7og00q",
+            "g": "want",
+            "name": "Personal care",
+            "amt": 60,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og005",
+            "due": 0
+          },
+          {
+            "id": "imwj7og00r",
+            "g": "want",
+            "name": "Gifts & holidays",
+            "amt": 800,
+            "f": "yr",
+            "acct": "jchk",
+            "cat": "imwj7og006",
+            "due": 12
+          },
+          {
+            "id": "imwj7og00s",
+            "g": "want",
+            "name": "Personal spending: me",
+            "amt": 150,
+            "f": "mo",
+            "acct": "mchk",
+            "cat": "",
+            "due": 0
+          },
+          {
+            "id": "imwj7og00t",
+            "g": "want",
+            "name": "Personal spending: partner",
+            "amt": 150,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "",
+            "due": 0
+          },
+          {
+            "id": "imwj7og00u",
+            "g": "want",
+            "name": "Buffer for surprises",
+            "amt": 100,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "",
+            "due": 0
+          }
+        ]
+      },
+      {
+        "id": "later",
+        "name": "Both working + rent",
+        "sub": "Both paychecks into joint",
+        "depositTo": "jchk",
+        "incomes": [
+          {
+            "id": "imwj7og00v",
+            "name": "My take-home pay",
+            "amt": 4000
+          },
+          {
+            "id": "imwj7og00w",
+            "name": "Partner take-home pay",
+            "amt": 0
+          }
+        ],
+        "lines": [
+          {
+            "id": "imwj7og00x",
+            "g": "need",
+            "name": "Rent",
+            "amt": 2500,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og001",
+            "due": 0
+          },
+          {
+            "id": "imwj7og00y",
+            "g": "need",
+            "name": "Utilities (electric, gas, water)",
+            "amt": 150,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og001",
+            "due": 0
+          },
+          {
+            "id": "imwj7og00z",
+            "g": "need",
+            "name": "Internet",
+            "amt": 60,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og001",
+            "due": 0
+          },
+          {
+            "id": "imwj7og0010",
+            "g": "need",
+            "name": "Phone",
+            "amt": 80,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og001",
+            "due": 0
+          },
+          {
+            "id": "imwj7og0011",
+            "g": "need",
+            "name": "Groceries & household supplies",
+            "amt": 650,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og002",
+            "due": 0
+          },
+          {
+            "id": "imwj7og0012",
+            "g": "need",
+            "name": "Gas, transit & parking",
+            "amt": 200,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og003",
+            "due": 0
+          },
+          {
+            "id": "imwj7og0013",
+            "g": "need",
+            "name": "Insurance (car, renters)",
+            "amt": 130,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og001",
+            "due": 0
+          },
+          {
+            "id": "imwj7og0014",
+            "g": "need",
+            "name": "Health costs (copays, prescriptions)",
+            "amt": 50,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og005",
+            "due": 0
+          },
+          {
+            "id": "imwj7og0015",
+            "g": "need",
+            "name": "Car registration & maintenance",
+            "amt": 600,
+            "f": "yr",
+            "acct": "jchk",
+            "cat": "imwj7og003",
+            "due": 3
+          },
+          {
+            "id": "imwj7og0016",
+            "g": "save",
+            "name": "Emergency fund",
+            "amt": 700,
+            "f": "mo",
+            "acct": "jsav",
+            "goal": {
+              "mode": "months",
+              "months": 6,
+              "amount": 0,
+              "saved": 0,
+              "by": ""
+            }
+          },
+          {
+            "id": "imwj7og0017",
+            "g": "save",
+            "name": "Fun & vacation",
+            "amt": 400,
+            "f": "mo",
+            "acct": "msav",
+            "goal": {
+              "mode": "amount",
+              "months": 6,
+              "amount": 3000,
+              "saved": 0,
+              "by": ""
+            }
+          },
+          {
+            "id": "imwj7og0018",
+            "g": "save",
+            "name": "Extra retirement / investing",
+            "amt": 0,
+            "f": "mo",
+            "acct": "inv"
+          },
+          {
+            "id": "imwj7og0019",
+            "g": "want",
+            "name": "Dining out & takeout",
+            "amt": 300,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og004",
+            "due": 0
+          },
+          {
+            "id": "imwj7og001a",
+            "g": "want",
+            "name": "Entertainment & outings",
+            "amt": 150,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og004",
+            "due": 0
+          },
+          {
+            "id": "imwj7og001b",
+            "g": "want",
+            "name": "Subscriptions (streaming, apps)",
+            "amt": 50,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og004",
+            "due": 0
+          },
+          {
+            "id": "imwj7og001c",
+            "g": "want",
+            "name": "Shopping & clothing",
+            "amt": 150,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og005",
+            "due": 0
+          },
+          {
+            "id": "imwj7og001d",
+            "g": "want",
+            "name": "Personal care",
+            "amt": 60,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "imwj7og005",
+            "due": 0
+          },
+          {
+            "id": "imwj7og001e",
+            "g": "want",
+            "name": "Gifts & holidays",
+            "amt": 800,
+            "f": "yr",
+            "acct": "jchk",
+            "cat": "imwj7og006",
+            "due": 12
+          },
+          {
+            "id": "imwj7og001f",
+            "g": "want",
+            "name": "Personal spending: me",
+            "amt": 200,
+            "f": "mo",
+            "acct": "mchk",
+            "cat": "",
+            "due": 0
+          },
+          {
+            "id": "imwj7og001g",
+            "g": "want",
+            "name": "Personal spending: partner",
+            "amt": 200,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "",
+            "due": 0
+          },
+          {
+            "id": "imwj7og001h",
+            "g": "want",
+            "name": "Buffer for surprises",
+            "amt": 150,
+            "f": "mo",
+            "acct": "jchk",
+            "cat": "",
+            "due": 0
+          }
+        ]
+      }
+    ]
+  }
+}
