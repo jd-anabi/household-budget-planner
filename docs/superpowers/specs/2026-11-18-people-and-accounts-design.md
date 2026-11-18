@@ -1,6 +1,6 @@
 # People, accounts, "items", and one generic example (data model v3)
 
-Status: draft for approval, 2026-11-18 (builder check done)
+Status: approved 2026-11-18
 
 ## Why
 
