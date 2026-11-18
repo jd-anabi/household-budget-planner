@@ -1041,6 +1041,7 @@ section('people', async () => {
   const tagOf = () => page.locator(`[data-goal="${fun}"] .tag`).innerText();
   check('labels follow it too', (await tagOf()) === 'My savings · Sam', await tagOf());
   check('the owner menus follow it', (await page.$eval(`#aw-jchk option[value="${p2}"]`, (e) => e.textContent)) === 'Sam');
+  check('the whose menus follow it too', (await page.$eval(`select[data-field="who"] option[value="${p2}"]`, (e) => e.textContent)) === 'Sam');
 
   await page.click(`[data-act="del-person"][data-id="${p1}"]`);
   const armedText = await page.locator(`[data-act="del-person"][data-id="${p1}"]`).innerText();
@@ -1067,6 +1068,42 @@ section('people', async () => {
   check('importing an older file says so and asks for names', await bannerHas(b.page, 'Imported the plan') && await bannerHas(b.page, 'add the people'));
   await b.page.click('[data-act="banner-close"]');
   check('Dismiss closes the banner', (await b.page.locator('#banner').innerText()).trim() === '');
+  await b.ctx.close();
+});
+
+section('income', async () => {
+  const { ctx, page } = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
+  const st = () => page.evaluate(() => window.__hbp.state());
+  let s = await st();
+  const p1 = s.people[0].id;
+  const now = s.scenarios.find((x) => x.id === 'now');
+  const ids = now.incomes.map((x) => x.id);
+  const whoVals = await Promise.all(ids.map((i) => page.inputValue(`#iw-${i}`)));
+  const toVals = await Promise.all(ids.map((i) => page.inputValue(`#it-${i}`)));
+  check('each income says whose pay it is and where it lands', whoVals.every((v) => v === p1) && toVals.join() === 'mchk,mchk', whoVals + '|' + toVals);
+  check('there is no scenario-wide deposit select any more', (await page.locator('#scn-dep').count()) === 0);
+  check('the payday plan starts where the pay lands', (await cardText(page, 'transfers')).includes('land in My checking · Person 1'), await cardText(page, 'transfers'));
+  await page.click('[data-act="add-inc"]');
+  s = await st();
+  const ni = s.scenarios.find((x) => x.id === 'now').incomes.slice(-1)[0];
+  check('a new income goes to the same account as the others', ni.who === p1 && ni.to === 'mchk' && ni.name === 'Take-home pay' && ni.amt === 0, JSON.stringify(ni));
+  await page.selectOption(`#it-${ni.id}`, 'jchk');
+  check('the menu keeps focus after the change', (await page.evaluate(() => document.activeElement.id)) === `it-${ni.id}`);
+  check('the choice is stored', (await st()).scenarios.find((x) => x.id === 'now').incomes.slice(-1)[0].to === 'jchk');
+  check('a $0 income landing elsewhere keeps the scenario pooled', (await page.evaluate(() => window.__hbp.payMode())).pooled === true);
+  await page.fill(`#ia-${ni.id}`, '100');
+  const pm = await page.evaluate(() => window.__hbp.payMode());
+  check('with pay in it, landing in two accounts makes it separate', pm.pooled === false && pm.lands.length === 2, JSON.stringify(pm));
+  await ctx.close();
+
+  // Review Focus 3: pay set to land in a savings account
+  // A hand-edited v3 file: take the upgraded plan, point the first income at a savings account.
+  const b = await openPage({ storage: OLD() });
+  const v3 = await b.page.evaluate(() => JSON.parse(JSON.stringify(window.__hbp.state())));
+  v3.scenarios[0].incomes[0].to = 'jsav';
+  await b.page.evaluate((x) => localStorage.setItem('household-budget-planner:plan:v1', x), JSON.stringify(v3));
+  await b.page.reload({ waitUntil: 'networkidle' });
+  check('pay set to land in a savings account lands in the first spending account', (await b.page.evaluate(() => window.__hbp.payMode().land)) === 'jchk');
   await b.ctx.close();
 });
 

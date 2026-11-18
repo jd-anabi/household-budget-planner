@@ -246,7 +246,9 @@ input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-i
 
 .add { align-self: flex-start; }
 
-.inc-row { display: grid; grid-template-columns: minmax(140px, 1fr) 140px 30px; gap: 8px; align-items: center; }
+.inc-row { display: grid; grid-template-columns: minmax(140px, 1fr) 110px 120px minmax(120px, 1fr) 30px; gap: 8px; align-items: center; }
+.inc-to { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+.inc-to .in { min-width: 0; flex: 1; }
 
 .flow svg { width: 100%; height: auto; display: block; }
 .flow text { font-family: var(--font-body); font-size: 12px; fill: var(--ink); }
@@ -347,6 +349,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   .wrap { padding: 18px 16px 40px; }
   h1 { font-size: 25px; }
   .rows-head { display: none; }
+  .inc-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 30px; grid-template-areas: "n n d" "w a a" "t t t"; }
+  .inc-row > input.in { grid-area: n; } .inc-row > .inc-who { grid-area: w; } .inc-row > .amt { grid-area: a; }
+  .inc-row > .inc-to { grid-area: t; } .inc-row > .icon { grid-area: d; }
   .row { grid-template-columns: minmax(0, 1fr) 104px 30px; grid-template-areas: "n a d" "f c m"; }
   .row > .c-n { grid-area: n; } .row > .c-a { grid-area: a; } .row > .c-d { grid-area: d; }
   .row > .c-f { grid-area: f; } .row > .c-c { grid-area: c; } .row > .c-m { grid-area: m; }
@@ -1125,8 +1130,28 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     return diffText(t.actual - t.planned, ' plan') + (t.entered < t.rows ? ' (' + t.entered + ' of ' + t.rows + ')' : '');
   }
 
+  // Where an income's pay lands: its account if that is a spending account, else the first spending account.
+  function incTo(x) { return isKind(x.to, 'spend') ? x.to : acctsOfKind('spend')[0]; }
+  // Pooled when all active incomes land in one account (or none is active); `land` is where the payday plan starts.
+  function payMode(s) {
+    var lands = [];
+    s.incomes.forEach(function (x) { if (x.amt >= 0.5) { var a = incTo(x); if (lands.indexOf(a) < 0) lands.push(a); } });
+    var land = lands.length ? lands[0] : s.incomes.length ? incTo(s.incomes[0]) : isKind(s.depositTo, 'spend') ? s.depositTo : acctsOfKind('spend')[0];
+    return { pooled: lands.length <= 1, land: land, lands: lands };
+  }
+  function newIncome(s) {
+    var who = state.people[0].id;
+    for (var i = 0; i < state.people.length; i++) {
+      var pid = state.people[i].id;
+      if (!s.incomes.some(function (x) { return x.who === pid; })) { who = pid; break; }
+    }
+    var shared = acctsOfKind('spend').filter(function (a) { return !ownerOf(a); })[0];
+    var to = s.incomes.length ? incTo(s.incomes[0]) : isKind(s.depositTo, 'spend') ? s.depositTo : shared || acctsOfKind('spend')[0];
+    return { id: nid(), name: 'Take-home pay', amt: 0, who: who, to: to };
+  }
+
   function transfers(s, c) {
-    var land = s.depositTo, items = [], moved = 0;
+    var land = payMode(s).land, items = [], moved = 0;
     acctIds().forEach(function (a) {
       if (a === land) return;
       var amt = c.by[a] || 0;
@@ -1243,18 +1268,24 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     return Object.keys(FREQ).map(function (k) { return '<option value="' + k + '"' + (k === sel ? ' selected' : '') + '>' + FREQ[k].label + '</option>'; }).join('');
   }
 
+  function whoOptions(sel) {
+    var h = state.people.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === sel ? ' selected' : '') + '>' + esc(personName(p.id)) + '</option>'; }).join('');
+    return findPerson(sel) ? h : '<option value="' + esc(sel) + '" selected>' + esc(sel || 'Nobody') + '</option>' + h;
+  }
+
   function editorHTML(s) {
     var h = checkinHTML();
     h += '<section class="card" aria-label="Income" data-tour="income">' +
       '<div class="card-head"><h2>Income</h2><span class="meta" data-out="income-total"></span></div>' +
       '<div class="fields">' +
         '<label class="field" for="scn-name">Scenario name<input class="in" id="scn-name" data-scope="scn" data-field="name" value="' + esc(s.name) + '"></label>' +
-        '<label class="field" for="scn-dep">Paychecks are deposited into<select class="in" id="scn-dep" data-scope="scn" data-field="depositTo">' + acctOptions('spend', s.depositTo) + '</select></label>' +
       '</div><div class="rows">';
     s.incomes.forEach(function (x) {
       h += '<div class="inc-row">' +
         '<input class="in" id="in-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="name" value="' + esc(x.name) + '" aria-label="Income source name">' +
+        '<select class="in inc-who" id="iw-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="who" aria-label="Whose pay is ' + esc(x.name) + '">' + whoOptions(x.who) + '</select>' +
         '<div class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="ia-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="amt" value="' + esc(x.amt) + '" aria-label="Monthly take-home for ' + esc(x.name) + '"></div>' +
+        '<label class="inc-to">lands in<select class="in" id="it-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="to" aria-label="Account ' + esc(x.name) + ' lands in">' + acctOptions('spend', x.to) + '</select></label>' +
         '<button class="icon" type="button" data-act="del-inc" data-id="' + x.id + '" aria-label="Remove ' + esc(x.name) + '" title="Remove">×</button></div>';
     });
     h += '</div><div class="actions">' +
@@ -1972,7 +2003,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       return;
     }
     if (sc === 'line') { var l = findLine(s, id); if (!l) return; if (t.tagName === 'SELECT') return; l[f] = isNum ? n(v) : v; }
-    else if (sc === 'inc') { var x = findInc(s, id); if (!x) return; x[f] = isNum ? n(v) : v; }
+    else if (sc === 'inc') { var x = findInc(s, id); if (!x || t.tagName === 'SELECT') return; x[f] = isNum ? n(v) : v; }
     else if (sc === 'goal') { var lg = findLine(s, id); if (!lg) return; if (t.tagName === 'SELECT') return; lg.goal = lg.goal || newGoal(); if (f === 'saved') setGoalBalance(lg, n(v)); else lg.goal[f] = n(v); }
     else if (sc === 'scn') { if (f === 'depositTo') return; s[f] = v; }
     else if (sc === 'cat') {
@@ -2015,6 +2046,12 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (sc === 'acct' && f === 'owner') {
       var oa = findAcct(id); if (!oa) return;
       oa.owner = v; changed(); rerenderEditor('aw-' + id);
+      return;
+    }
+    // Whose pay it is and where it lands change what the scenario is and which accounts are in use: redraw, keeping focus.
+    if (sc === 'inc') {
+      var xi = findInc(s, id); if (!xi) return;
+      xi[f] = v; changed(); rerenderEditor(t.id);
       return;
     }
     if (sc === 'line') {
@@ -2124,7 +2161,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       var g = b.getAttribute('data-g');
       // A savings item goes to the first savings account; anything else is paid from where pay lands, else the first spending account.
       var nl = L(g, g === 'save' ? 'New savings item' : 'New item', 0, 'mo',
-        g === 'save' ? acctsOfKind('save')[0] : (isKind(s.depositTo, 'spend') ? s.depositTo : acctsOfKind('spend')[0]));
+        g === 'save' ? acctsOfKind('save')[0] : payMode(s).land);
       if (g === 'save') nl.goal = newGoal();
       var lastIdx = -1; s.lines.forEach(function (l, i) { if (l.g === g) lastIdx = i; });
       s.lines.splice(lastIdx + 1, 0, nl);
@@ -2167,9 +2204,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     }
     if (act === 'del-line') { var id = b.getAttribute('data-id'); s.lines = s.lines.filter(function (l) { return l.id !== id; }); changed(); rerenderEditor(null); return; }
     if (act === 'add-inc') {
-      // Whose pay and where it lands: the first person, and where the scenario's pay already lands (so it stays pooled).
-      var ni = { id: nid(), name: 'Other income', amt: 0, who: state.people[0].id,
-        to: s.incomes.length ? s.incomes[0].to : (isKind(s.depositTo, 'spend') ? s.depositTo : acctsOfKind('spend')[0]) };
+      var ni = newIncome(s);
       s.incomes.push(ni); changed(); rerenderEditor('in-' + ni.id); var ie = document.getElementById('in-' + ni.id); if (ie) ie.select(); return; }
     if (act === 'del-inc') { var iid = b.getAttribute('data-id'); s.incomes = s.incomes.filter(function (x) { return x.id !== iid; }); changed(); rerenderEditor(null); return; }
     if (act === 'copy-scn') {
@@ -2183,7 +2218,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       return;
     }
     if (act === 'new-scn') {
-      var ns = { id: nid(), name: 'New scenario', sub: '', depositTo: s.depositTo, split: { mode: 'income', pct: {} }, incomes: [], lines: [] };
+      var ns = { id: nid(), name: 'New scenario', sub: '', depositTo: payMode(s).land, split: { mode: 'income', pct: {} }, incomes: [], lines: [] };
       state.scenarios.push(ns); state.active = ns.id;
       changed(); renderAll();
       var nn = document.getElementById('scn-name'); if (nn) { nn.focus(); nn.select(); }
@@ -2373,6 +2408,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     honeydueText: function () { return honeydueText(scn()); },
     spendRows: function (m) { return spendRows(scn(), m); },
     dateStatus: dateStatus, paceStatus: paceStatus, projectFund: projectFund,
+    payMode: function () { return payMode(scn()); },
     transfers: function (id) { var s = id ? findScn(id) : scn(); return s ? transfers(s, calc(s)) : null; },
     tourState: function () { var st = tourSteps[tourI]; return { i: tourI, n: tourSteps.length, sel: st ? st.sel : null }; }
   };
