@@ -1,6 +1,6 @@
 # People, accounts, "items", and one generic example (data model v3)
 
-Status: draft for approval, 2026-11-18
+Status: draft for approval, 2026-11-18 (builder check done)
 
 ## Why
 
@@ -253,20 +253,33 @@ In every mode $\sum_p w_p = 1$ whenever anyone has pay.
 Notation:
 - Active incomes $i$, with amount $I_i$, person $p(i)$ and landing account $d(i)$.
 - $I_p = \sum_{i: p(i) = p} I_i$.
-- $N_a$ = the monthly amount routed to account $a$. This is `calc().by[a]` exactly as today:
-  items by `acct`, and yearly items' share to the fund account while the fund is on.
+- Each item $\ell$ has a monthly amount $m_\ell$ and two accounts:
+  - its **bearer** $b(\ell)$ = `l.acct`, the account it's paid from or saved into, which decides whose cost it is;
+  - its **destination** $r(\ell)$, where the payday money goes. That is `fund.acct` for a yearly item
+    while the fund is on, and $b(\ell)$ otherwise.
+- $N_a = \sum_{\ell : r(\ell) = a} m_\ell$ (plus nothing else). This is `calc().by[a]` exactly as today.
 
 **Pooled** (one landing account $d$). Exactly today's plan: move $N_a$ to every account
 $a \ne d$ in `acctOrder` with $N_a > 0.5$, and keep $I - \sum_{a \ne d} N_a$ in $d$. Today's
 diagram, steps and alert are unchanged apart from account labels. A migrated plan is always pooled
 (section 8), so its payday plan is identical to v2's.
+- With no active income at all, the landing account is the first income's `to`, else `depositTo`,
+  so the steps list keeps showing what v2 showed. The diagram keeps its "Add income…" note.
 
-**Separate** (two or more landing accounts). Each person pays for the accounts they own, plus
-their share of the shared ones. Person $p$'s monthly obligation to account $a$ is:
+**Separate** (two or more landing accounts). Each person pays for the items in the accounts they
+own, plus their share of the items in shared accounts. This holds even when the money is routed
+elsewhere: a yearly bill paid from "Checking · Alex" is Alex's cost, and Alex sends its monthly
+share to the fund account. For a bearer account $b$, person $p$'s share is:
 
 $$
-O_{p,a} = \begin{cases} N_a & \text{owner}(a) = p \\ w_p\, N_a & a \text{ is Shared} \\ 0 & \text{owned by someone else} \end{cases}
+\sigma_p(b) = \begin{cases} 1 & \text{owner}(b) = p \\ w_p & b \text{ is Shared (or its owner no longer exists)} \\ 0 & \text{owned by someone else} \end{cases}
 $$
+
+Person $p$'s monthly obligation to account $a$ is then
+$O_{p,a} = \sum_{\ell : r(\ell) = a} \sigma_p(b(\ell))\, m_\ell$.
+Without the fund, $r = b$ and this is simply $N_a$ for your own account, $w_p N_a$ for a shared
+one, and 0 for someone else's. In general $\sum_p O_{p,a} = N_a$ unless some item's bearer is
+owned by a person with no pay (the unfunded warning below).
 
 - A person with several incomes splits their obligations across them in proportion to amount:
   $\alpha_i = I_i / I_{p(i)}$.
@@ -290,10 +303,15 @@ Sam's pay · $2,800 into Checking · Sam
 is the builder's call; it must fit 390px. Warnings, in `--bad`:
 - **A share bigger than the pay:** $L_p < -0.5$ gives "Alex's share is $X more than Alex's pay.
   Lower some amounts or change the split."
-- **An unfunded account:** an account owned by someone with $I_q = 0$ and $N_a > 0.5$. Its money
-  isn't covered by anyone: "Nobody's pay covers Checking · Sam ($150): Sam has no take-home in this
-  scenario. Move those items to a shared account, or add Sam's pay." Such accounts are flagged,
-  not silently paid from shared money.
+- **An unfunded account:** a bearer account owned by someone with $I_q = 0$ whose items add up
+  to more than $0.50 a month, counting yearly items routed to the fund. Their money isn't covered
+  by anyone: "Nobody's pay covers Checking · Sam ($150): Sam has no take-home in this scenario.
+  Move those items to a shared account, or add Sam's pay." Such accounts are flagged, not silently
+  paid from shared money.
+
+Each step's "why" text names the shares it is made of (e.g. "57% of shared savings $610",
+"Alex's yearly costs $50"). The builder may round each person's transfers so that, per account,
+they add up to the rounded total.
 
 When there is no active income at all, the plan shows today's "Add income to see the transfer
 plan." Group totals, the summary, 50/30/20, Honeydue limits, goals, the yearly-costs fund and
@@ -359,7 +377,8 @@ and works on a copy that only adds fields. **v2 → v3:**
 
 **Backups.** Before upgrading a stored plan of version $k$ (1 or 2), copy its raw JSON to
 `household-budget-planner:plan:v{k}-backup`, only if that key is empty. The v1 key keeps its name,
-so existing v1 backups stay where they are. The storage key `…:plan:v1` doesn't change.
+so existing v1 backups stay where they are. A stored value that can't be read at all still goes
+to the v1 key, as today. The storage key `…:plan:v1` doesn't change.
 
 **Rollback guard.** Already in place: the v2 app refuses any plan with `v > 2` and never saves over
 it. Rolling this piece back is a plain revert. A device back on v2 shows the newer-version banner
@@ -368,7 +387,9 @@ and leaves the v3 plan alone. The v3 app keeps the same guard for `v > 3`.
 **After an upgrade.** After an upgrade on load, or an import of a v1/v2 file, a one-time info
 banner says: "New: add the people in your household. Accounts and pay now say whose they are."
 [Go to People] [Dismiss]. "Go to People" scrolls to the People card and focuses the first name.
-Banner precedence: newer-version error, then import result, then this, then the tour offer.
+There is one banner slot. The newer-version error wins. After an import of an older file, this
+text is added to the "Imported the plan" message instead of replacing it. Otherwise it comes
+before the tour offer.
 
 ### 9. Tour
 
@@ -436,6 +457,9 @@ Extend `tests/smoke.js` (dependency-free, as now):
   - *by take-home:* for a Shared account with $N_a$, Alex's transfer is $\frac{I_A}{I_A + I_S} N_a$;
   - *equally:* $N_a/2$;
   - *set percentages* 70/30: $0.7\,N_a$; percentages adding up to 90 show the scaling note;
+  - with the fund on, a yearly item paid from Alex's own account counts in Alex's block only
+    (its share still goes to the fund account), and a yearly item paid from a shared account is
+    split by the weights;
   - a share bigger than the pay shows the warning;
   - a zero-pay person's own account with items shows the unfunded warning;
   - pointing both incomes at one account again hides the control and restores the pooled plan.
@@ -465,6 +489,9 @@ Accounts card, the income rows and the per-person payday blocks.
   100 are scaled, with a note.
 - In separate mode, an account owned by someone with no pay is flagged, not quietly paid from
   shared money.
+- With the yearly-costs fund on and pay kept separate, a yearly bill is the cost of whoever owns
+  the account it's paid from (split by the weights if that account is shared). Its monthly share
+  still goes to the fund account.
 - Upgraded plans get one placeholder person, "Person 1", who owns the old "My checking" and
   "My savings" and all incomes. A one-time banner asks for names.
 - The People card sits after Yearly costs, before Accounts.
