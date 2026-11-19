@@ -269,7 +269,9 @@ input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-i
 .steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; counter-reset: s; }
 .steps li { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: baseline; font-size: 14px; }
 .steps li::before { counter-increment: s; content: counter(s); font-size: 12px; font-weight: 700; color: var(--ink-2); background: var(--surface-2); border-radius: 50%; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; }
-.steps li b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.steps li > b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The account's label (it carries the owner's name) wraps, even inside a long name, so the amount stays in the card. */
+.steps li > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .steps li .why { grid-column: 2 / 4; font-size: 12px; color: var(--ink-3); margin-top: -4px; }
 /* Separate pay: one block per person, with a sub-heading per income when they have several. */
 .pp { display: flex; flex-direction: column; gap: 8px; }
@@ -371,7 +373,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   .inc-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 30px; grid-template-areas: "n n d" "w a a" "t t t"; }
   .inc-row > input.in { grid-area: n; } .inc-row > .inc-who { grid-area: w; } .inc-row > .amt { grid-area: a; }
   .inc-row > .inc-to { grid-area: t; } .inc-row > .icon { grid-area: d; }
-  .row { grid-template-columns: minmax(0, 1fr) 104px 30px; grid-template-areas: "n a d" "f c m"; }
+  /* The account menu takes the wider share of the second line: closed, it has to show whose account it is ("Checking · Alex"). */
+  .row { grid-template-columns: 92px minmax(0, 1fr) 104px 30px; grid-template-areas: "n n a d" "f c c m"; }
   .row > .c-n { grid-area: n; } .row > .c-a { grid-area: a; } .row > .c-d { grid-area: d; }
   .row > .c-f { grid-area: f; } .row > .c-c { grid-area: c; } .row > .c-m { grid-area: m; }
   .row { padding-bottom: 10px; border-bottom: 1px solid var(--line); }
@@ -594,15 +597,20 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       okObj(p.fund) && validDeep(p) && (p.fund.acct === '' || ['jsav', 'msav', 'inv'].indexOf(p.fund.acct) >= 0);
   }
   var SPLIT_MODES = ['income', 'equal', 'custom'];
+  // People and account ids are also keys of plain objects (accounts, split percentages, sums by person or account),
+  // so a name every object inherits ("__proto__", "constructor", "toString"…) would read or overwrite what it inherits.
+  function okKey(x) { return okId(x) && !(x in Object.prototype); }
+  function distinct(list) { return list.every(function (x, i) { return list.indexOf(x) === i; }); }
   // A current (v3) plan: v2's checks, plus people, accounts with a kind, their display order, and each income's
   // person and landing account. Ids that reach HTML must be safe; owners and other references may dangle (shown gracefully).
   function validPlan(p) {
     if (!validShape(p) || p.v !== DATA_V || !Array.isArray(p.cats) || !Array.isArray(p.checkins) ||
       !okObj(p.fund) || !okMap(p.accounts) || !validDeep(p)) return false;
-    function acct(a) { return okId(a) && Object.prototype.hasOwnProperty.call(p.accounts, a) && okObj(p.accounts[a]) ? p.accounts[a] : null; }
+    function acct(a) { return okKey(a) && Object.prototype.hasOwnProperty.call(p.accounts, a) && okObj(p.accounts[a]) ? p.accounts[a] : null; }
     var kinds = {};
-    return Array.isArray(p.people) && p.people.length > 0 && p.people.every(function (x) { return okObj(x) && okId(x.id); }) &&
-      Array.isArray(p.acctOrder) && p.acctOrder.every(function (a) {
+    return Array.isArray(p.people) && p.people.length > 0 && p.people.every(function (x) { return okObj(x) && okKey(x.id); }) &&
+      distinct(p.people.map(function (x) { return x.id; })) &&
+      Array.isArray(p.acctOrder) && distinct(p.acctOrder) && p.acctOrder.every(function (a) {
         var x = acct(a);
         if (!x || (x.kind !== 'spend' && x.kind !== 'save')) return false;
         kinds[x.kind] = true;
@@ -610,7 +618,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       }) && !!kinds.spend && !!kinds.save &&
       (p.fund.acct === '' || (!!acct(p.fund.acct) && acct(p.fund.acct).kind === 'save')) &&
       p.scenarios.every(function (s) {
-        return okObj(s.split) && SPLIT_MODES.indexOf(s.split.mode) >= 0 && okMap(s.split.pct) && Object.keys(s.split.pct).every(okId) &&
+        return okObj(s.split) && SPLIT_MODES.indexOf(s.split.mode) >= 0 && okMap(s.split.pct) && Object.keys(s.split.pct).every(okKey) &&
           s.incomes.every(function (x) { return okId(x.who) && okId(x.to); });
       });
   }
@@ -755,22 +763,31 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function acctIds() { return state.acctOrder.filter(function (a) { return !!findAcct(a); }); }
   function acctsOfKind(kind) { return acctIds().filter(function (a) { return findAcct(a).kind === kind; }); }
   function isKind(a, kind) { return acctsOfKind(kind).indexOf(a) >= 0; }
-  function acctName(a) { var x = findAcct(a); return x ? String(x.name == null ? '' : x.name) : 'Deleted account'; }
+  // An account with no name shows as "Untitled account" (its name input stays empty).
+  function acctName(a) { var x = findAcct(a); return x ? (String(x.name == null ? '' : x.name).trim() || 'Untitled account') : 'Deleted account'; }
+  // Whether `name` has `word` as a whole word, in any case: "Alex checking" has "Alex", "Shared savings" doesn't have "Ed".
+  // A word character is a letter or digit in any script (U+00C0 and up, leaving out the punctuation and symbols at U+2000–U+2BFF).
+  var WORD_CH = '0-9A-Za-z_\\u00C0-\\u1FFF\\u2C00-\\uFFFF';
+  function hasWord(name, word) {
+    var re = new RegExp('(^|[^' + WORD_CH + '])' + word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=$|[^' + WORD_CH + '])', 'i');
+    return re.test(name);
+  }
   // The name, plus whose account it is unless it's Shared or the name already says so ("Checking · Alex").
   function acctLabel(a) {
     var name = acctName(a), o = ownerOf(a), who = o ? personName(o) : '';
-    return who && name.toLowerCase().indexOf(who.toLowerCase()) < 0 ? name + ' · ' + who : name;
+    return who && !hasWord(name, who) ? name + ' · ' + who : name;
   }
   // An account's label in the editor column. refresh() renews its text, so renaming an account or a person shows
   // there without re-drawing the input being typed in. (The side column is re-drawn by refresh() anyway.)
   function acctSpan(a, cls) { return '<span' + (cls ? ' class="' + cls + '"' : '') + ' data-acct-label="' + esc(a) + '">' + esc(acctLabel(a)) + '</span>'; }
   // Options for an account menu: accounts of one kind, grouped by owner (Shared first, then people in order).
+  // Each option shows the full label, so a closed menu says whose "Checking" it is.
   // A `sel` that isn't one of them (a removed account, or one of the other kind) is kept as a first, selected option,
   // so the menu shows what the plan holds; pass null when nothing is to be selected.
   function acctOptions(kind, sel) {
     var ids = acctsOfKind(kind);
     function opts(list) {
-      return list.map(function (a) { return '<option value="' + esc(a) + '"' + (a === sel ? ' selected' : '') + '>' + esc(acctName(a)) + '</option>'; }).join('');
+      return list.map(function (a) { return '<option value="' + esc(a) + '"' + (a === sel ? ' selected' : '') + '>' + esc(acctLabel(a)) + '</option>'; }).join('');
     }
     var shared = ids.filter(function (a) { return !ownerOf(a); });
     var h = shared.length ? '<optgroup label="Shared">' + opts(shared) + '</optgroup>' : '';
@@ -780,6 +797,14 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     });
     if (sel !== null && ids.indexOf(sel) < 0) h = '<option value="' + esc(sel) + '" selected>' + esc(acctLabel(sel)) + '</option>' + h;
     return h;
+  }
+  // Renaming an account or a person changes labels: renew every account menu's options in place, so the input being
+  // typed in is not re-drawn. (The account menus are items' "Paid from" / "Goes to", incomes' "lands in" and the fund's.)
+  function relabelAcctOptions() {
+    acctIds().forEach(function (a) {
+      root.querySelectorAll('select[data-field="acct"] option[value="' + a + '"], select[data-field="to"] option[value="' + a + '"]')
+        .forEach(function (o) { o.textContent = acctLabel(a); });
+    });
   }
   function acctColor(a) {
     var x = findAcct(a), list = x && ACCT_COLORS[x.kind], i = list ? acctsOfKind(x.kind).indexOf(a) : -1;
@@ -1123,6 +1148,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   // An income is active from $0.50 a month: a $0 placeholder neither makes pay separate nor gets a share.
   function isActive(x) { return n(x.amt) >= 0.5; }
   // Whose pay an income is; one naming a person who no longer exists counts as the first person's, so no pay goes missing.
+  // Everything that shows or sums whose pay it is (the whose menu, People, the payday plan) goes through this.
   function incWho(x) { return findPerson(x.who) ? x.who : state.people[0].id; }
   // Pooled when all active incomes land in one account (or none is active); `land` is where the payday plan starts.
   function payMode(s) {
@@ -1135,7 +1161,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     var who = state.people[0].id;
     for (var i = 0; i < state.people.length; i++) {
       var pid = state.people[i].id;
-      if (!s.incomes.some(function (x) { return x.who === pid; })) { who = pid; break; }
+      if (!s.incomes.some(function (x) { return incWho(x) === pid; })) { who = pid; break; }
     }
     var shared = acctsOfKind('spend').filter(function (a) { return !ownerOf(a); })[0];
     var to = s.incomes.length ? incTo(s.incomes[0]) : isKind(s.depositTo, 'spend') ? s.depositTo : shared || acctsOfKind('spend')[0];
@@ -1341,9 +1367,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     return Object.keys(FREQ).map(function (k) { return '<option value="' + k + '"' + (k === sel ? ' selected' : '') + '>' + FREQ[k].label + '</option>'; }).join('');
   }
 
+  // The people, `sel` selected: pass incWho(x), so an income naming someone who no longer exists shows as the first person's.
   function whoOptions(sel) {
-    var h = state.people.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === sel ? ' selected' : '') + '>' + esc(personName(p.id)) + '</option>'; }).join('');
-    return findPerson(sel) ? h : '<option value="' + esc(sel) + '" selected>' + esc(sel || 'Nobody') + '</option>' + h;
+    return state.people.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === sel ? ' selected' : '') + '>' + esc(personName(p.id)) + '</option>'; }).join('');
   }
 
   var SPLIT_LABELS = { income: 'In proportion to take-home', equal: 'Equally', custom: 'Set percentages' };
@@ -1386,7 +1412,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     s.incomes.forEach(function (x) {
       h += '<div class="inc-row">' +
         '<input class="in" id="in-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="name" value="' + esc(x.name) + '" aria-label="Income source name">' +
-        '<select class="in inc-who" id="iw-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="who" aria-label="Whose pay is ' + esc(x.name) + '">' + whoOptions(x.who) + '</select>' +
+        '<select class="in inc-who" id="iw-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="who" aria-label="Whose pay is ' + esc(x.name) + '">' + whoOptions(incWho(x)) + '</select>' +
         '<div class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="ia-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="amt" value="' + esc(x.amt) + '" aria-label="Monthly take-home for ' + esc(x.name) + '"></div>' +
         '<label class="inc-to">lands in<select class="in" id="it-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="to" aria-label="Account ' + esc(x.name) + ' lands in">' + acctOptions('spend', x.to) + '</select></label>' +
         '<button class="icon" type="button" data-act="del-inc" data-id="' + x.id + '" aria-label="Remove ' + esc(x.name) + '" title="Remove">×</button></div>';
@@ -1435,7 +1461,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function ownedBy(id) { return acctIds().filter(function (a) { return ownerOf(a) === id; }).length; }
   function peopleMeta(s, id) {
     var k = ownedBy(id), pay = 0;
-    s.incomes.forEach(function (x) { if (x.who === id) pay += n(x.amt); });
+    s.incomes.forEach(function (x) { if (incWho(x) === id) pay += n(x.amt); });
     return k + ' account' + (k === 1 ? '' : 's') + ' · ' + money(pay) + ' take-home here';
   }
   function peopleHTML(s) {
@@ -1940,18 +1966,29 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   }
 
   // Account labels can be long (they carry the owner's name): shorten one that would run past the diagram's
-  // right edge. The steps list under the diagram always shows it in full.
+  // right edge, with the full text as its tooltip. The steps list under the diagram always shows it in full.
+  // It measures text, so it runs again once the web fonts have loaded, starting from each label's full text.
+  // Only cosmetic: whatever goes wrong in here must not stop the side column from showing.
   function fitFlowLabels() {
-    root.querySelectorAll('.flow svg').forEach(function (svg) {
-      var W = svg.viewBox.baseVal.width;
-      svg.querySelectorAll('text.flow-l').forEach(function (t) {
-        var max = W - t.x.baseVal[0].value, s = t.textContent;
-        while (s.length > 1 && t.getComputedTextLength() > max) {
-          s = s.slice(0, -1);
-          t.textContent = s.replace(/[\s·]+$/, '') + '…';
-        }
+    try {
+      root.querySelectorAll('.flow svg').forEach(function (svg) {
+        var W = svg.viewBox.baseVal.width;
+        svg.querySelectorAll('text.flow-l').forEach(function (t) {
+          var full = t.getAttribute('data-full');
+          if (full === null) { full = t.textContent; t.setAttribute('data-full', full); }
+          t.textContent = full; // also drops a tooltip from an earlier run
+          var max = W - parseFloat(t.getAttribute('x')), s = full;
+          if (!(max > 0) || t.getComputedTextLength() <= max) return;
+          while (s.length > 1 && t.getComputedTextLength() > max) {
+            s = s.slice(0, -1);
+            t.textContent = s.replace(/[\s·]+$/, '') + '…';
+          }
+          var tip = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+          tip.textContent = full;
+          t.insertBefore(tip, t.firstChild);
+        });
       });
-    });
+    } catch (e) { /* the labels keep their full text */ }
   }
 
   function stepsHTML(s, c, t) {
@@ -1977,8 +2014,10 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   // The kinds a step's "why" text names, as in stepsHTML: the groups, and yearly items while their share goes to the fund.
   var SHARE_KINDS = GROUPS.map(function (G) { return { key: G.key, name: G.name.toLowerCase() }; }).concat({ key: 'yearly', name: 'yearly costs' });
-  // What person p covers in account a, e.g. "75% of shared savings $500 + Alex’s yearly costs $100".
-  function shareParts(s, w, pid, a) {
+  // What person p covers in account a, e.g. "75% of shared savings $500 + Alex’s yearly costs $100", as paid from one of
+  // their incomes: `part` is that income's part of what p covers (α = its amount / p's pay, 1 for their only income).
+  // The amounts named are that part of the shared costs and of p's own, so they add up to the income's step.
+  function shareParts(s, w, pid, a, part) {
     var parts = [];
     SHARE_KINDS.forEach(function (k) {
       var shared = 0, own = 0;
@@ -1987,8 +2026,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
         var o = ownerOf(l.acct);
         if (!o) shared += monthly(l); else if (o === pid) own += monthly(l);
       });
-      if (shared * w[pid] > 0.5) parts.push(pct(w[pid]) + ' of shared ' + k.name + ' ' + money(shared));
-      if (own > 0.5) parts.push(personName(pid) + '’s ' + k.name + ' ' + money(own));
+      if (shared * part * w[pid] > 0.5) parts.push(pct(w[pid]) + ' of shared ' + k.name + ' ' + money(shared * part));
+      if (own * part > 0.5) parts.push(personName(pid) + '’s ' + k.name + ' ' + money(own * part));
     });
     return parts;
   }
@@ -2003,13 +2042,13 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       var who = personName(pp.id), many = pp.incomes.length > 1;
       h += '<div class="pp" data-person="' + esc(pp.id) + '"><h3>' + esc(who + '’s pay · ' + money(pp.I) + (many ? '' : ' into ' + acctLabel(pp.incomes[0].land))) + '</h3>';
       pp.incomes.forEach(function (x) {
-        var inc = findInc(s, x.id), name = String(inc && inc.name || '').trim() || 'Untitled income';
-        if (many) h += '<h4>' + esc(name + ' · ' + money(x.I) + ' into ' + acctLabel(x.land)) + '<span class="faint">' + esc('Covers ' + pct(x.I / pp.I) + ' of what ' + who + ' pays for') + '</span></h4>';
+        var inc = findInc(s, x.id), name = String(inc && inc.name || '').trim() || 'Untitled income', part = many ? x.I / pp.I : 1;
+        if (many) h += '<h4>' + esc(name + ' · ' + money(x.I) + ' into ' + acctLabel(x.land)) + '<span class="faint">' + esc('Covers ' + pct(part) + ' of what ' + who + ' pays for') + '</span></h4>';
         h += '<ol class="steps">';
         x.moves.forEach(function (m) {
-          h += '<li><span>Move to <b>' + esc(acctLabel(m.a)) + '</b></span><b>' + money(m.amt) + '</b><span class="why">' + esc(shareParts(s, sp.w, pp.id, m.a).join(' + ')) + '</span></li>';
+          h += '<li><span>Move to <b>' + esc(acctLabel(m.a)) + '</b></span><b>' + money(m.amt) + '</b><span class="why">' + esc(shareParts(s, sp.w, pp.id, m.a, part).join(' + ')) + '</span></li>';
         });
-        var kept = shareParts(s, sp.w, pp.id, x.land), unassigned = Math.max(x.keep - x.keepPlanned, 0);
+        var kept = shareParts(s, sp.w, pp.id, x.land, part), unassigned = Math.max(x.keep - x.keepPlanned, 0);
         if (unassigned > 0.5) kept.push(money(unassigned) + ' not assigned yet');
         h += '<li><span>Keep in <b>' + esc(acctLabel(x.land)) + '</b></span><b>' + money(Math.max(x.keep, 0)) + '</b><span class="why">' + esc(kept.join(' + ') || 'nothing planned here') + '</span></li></ol>';
       });
@@ -2180,15 +2219,14 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       root.querySelectorAll('optgroup[data-person="' + id + '"]').forEach(function (g) { g.label = pShown; });
       root.querySelectorAll('.acct-group h3[data-person="' + id + '"]').forEach(function (h3) { h3.textContent = pShown; });
       root.querySelectorAll('select[data-field="owner"] option[value="' + id + '"], select[data-field="who"] option[value="' + id + '"]').forEach(function (o) { o.textContent = pShown; });
+      relabelAcctOptions(); // their accounts' labels carry the name
       // An empty name shows as "Person N", so the other empty names may have changed place; the field hints follow.
       state.people.forEach(function (q) { var qi = document.getElementById('pn-' + q.id); if (qi) qi.placeholder = personName(q.id); });
     }
     else if (sc === 'acct') {
       var ac = findAcct(id); if (!ac || t.tagName === 'SELECT') return;
       ac[f] = v;
-      // Rename it in every menu without re-drawing this input: menus group by owner, so a grouped option shows the
-      // name; an option kept for a value outside the menu's list shows the full label.
-      if (f === 'name') root.querySelectorAll('select option[value="' + id + '"]').forEach(function (o) { o.textContent = o.parentNode.tagName === 'OPTGROUP' ? acctName(id) : acctLabel(id); });
+      if (f === 'name') relabelAcctOptions(); // rename it in every menu without re-drawing this input
     }
     changed();
     refresh();
@@ -2441,7 +2479,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     state = r.plan; savedAt = Date.now(); storageOk = true;
     // As after an import: confirms armed and the check-in month picked here referred to the plan this window had.
     resetView(); pendingReset = false;
-    if (!banner || banner.kind !== 'import') banner = { kind: 'info', html: 'Updated from another window.' };
+    // An import waiting for "Replace plan" stays, and so does the ask for names after an upgrade.
+    if (!banner || (banner.kind !== 'import' && banner.kind !== 'people')) banner = { kind: 'info', html: 'Updated from another window.' };
     renderAll();
     placeSpot(false);
   }
@@ -2450,6 +2489,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   window.addEventListener('pageshow', function (e) { if (e.persisted) syncFromStorage(); });
 
   renderAll();
+  // The first render measured the diagram's labels in whatever font was there; measure again once the web fonts are in.
+  // (Asked after that render, since laying it out is what starts the fonts loading.)
+  try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitFlowLabels, function () {}); } catch (e) { /* no font loading API */ }
 
   /* ---------- tour ---------- */
   var TOUR = [

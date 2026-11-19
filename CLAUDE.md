@@ -35,8 +35,9 @@ per-transaction tracking.
 - `tests/smoke.js`: headless-browser smoke test (Playwright) in named sections; `tests/fixtures/plan-v1.json`
   and `plan-v2.json` are exports of the older two-scenario example plan, for migration tests and for sections
   that need its numbers. Not part of the app, so they stay out of `ASSETS`.
-- `docs/superpowers/`: the design and plan for the v2 features. `.nojekyll` makes GitHub Pages serve
-  files as-is, so Markdown here can never break a deploy.
+- `docs/superpowers/`: the designs (`specs/`) and plans (`plans/`) for the v2 features (categories, check-in,
+  goals, tour) and for v3 (people and accounts). `.nojekyll` makes GitHub Pages serve files as-is, so Markdown
+  here can never break a deploy.
 
 ## Data model (`state`, v3)
 
@@ -80,7 +81,9 @@ per-transaction tracking.
   `jchk` (so every upgraded scenario is pooled and its payday plan is unchanged); `split: {mode: 'income', pct: {}}`.
 - Validation (`validPlan`, v3; `validV2` checks a v2 plan between steps) refuses a malformed plan rather than
   half-loading it. Ids that reach HTML must match `ID_RE`: people ids, `acctOrder` entries, income `who`/`to`,
-  `split.pct` keys (and category, line, scenario, income and check-in ids as before). `people` is non-empty,
+  `split.pct` keys (and category, line, scenario, income and check-in ids as before). People ids, `acctOrder`
+  entries and `split.pct` keys are also object keys, so they can't be names every object inherits (`__proto__`,
+  `constructor`, `toString`…), and people ids and `acctOrder` entries are each listed once. `people` is non-empty,
   every `acctOrder` entry is an account with a kind, there is at least one spending and one savings
   account, `fund.acct` is `''` or a savings account, and `split.mode` is one of the three. Dangling
   references (an owner, `who` or `to` that no longer exists) are allowed and shown gracefully.

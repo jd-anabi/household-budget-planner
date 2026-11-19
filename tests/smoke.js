@@ -222,6 +222,19 @@ section('layout', async () => {
   check('dark theme applies', background['phone-light'] !== background['phone-dark'],
     `light ${background['phone-light']}, dark ${background['phone-dark']}`);
 
+  // A select can't wrap its text: on a phone an item's account menu needs room for "Checking · Alex" while closed.
+  const pm = await openPage({ viewport: { width: 390, height: 844 } });
+  await pm.page.evaluate(() => document.fonts.ready);
+  const menus = await pm.page.evaluate(() => window.__hbp.state().scenarios[0].lines.filter((l) => /^Personal spending/.test(l.name)).map((l) => {
+    const sel = document.getElementById(`c-${l.id}`), cs = getComputedStyle(sel), cx = document.createElement('canvas').getContext('2d');
+    cx.font = cs.font;
+    const text = sel.selectedOptions[0].textContent;
+    // the text, the padding and about 24px for the arrow
+    return { text, need: Math.ceil(cx.measureText(text).width + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + 24), width: sel.clientWidth };
+  }));
+  check('390px: a closed account menu has room to say whose account it is', menus.length === 2 && menus.every((x) => x.text.includes(' · ') && x.need <= x.width), JSON.stringify(menus));
+  await pm.ctx.close();
+
   // Card heads with a description keep their total or count where the group cards keep theirs:
   // top right beside the title on wide screens, under the description on a phone.
   for (const width of [1280, 700, 390]) {
@@ -245,6 +258,23 @@ section('layout', async () => {
   const wide = await ph.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   check(`a ${long.length}-character scenario name in "Compared with" fits a 390px screen`, wide <= 0, `${wide}px too wide`);
   await ph.ctx.close();
+
+  // Account labels carry the owner's name: a long one wraps (payday steps, tags) instead of widening a phone screen.
+  const longName = 'Wolfeschlegelsteinhausen'; // 24 characters with no place to break
+  for (const scheme of ['light', 'dark']) {
+    const lp = await openPage({ viewport: { width: 390, height: 844 }, colorScheme: scheme, storage: OLD(), date: '2026-11-16T12:00' });
+    const p1 = await lp.page.evaluate(() => window.__hbp.state().people[0].id);
+    await lp.page.fill(`#pn-${p1}`, longName);
+    await lp.page.click('[data-act="ci-start"]'); // its goal rows show account labels too
+    const over = await lp.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    // Content can spill past a card into the page's side gutter before the page itself scrolls.
+    const spill = await lp.page.$$eval('.card', (els) => els.filter((c) => c.scrollWidth > c.clientWidth).map((c) => `${c.getAttribute('aria-label')} ${c.scrollWidth - c.clientWidth}px`));
+    const shown = (await lp.page.locator('.steps').innerText()).includes(`Keep in My checking · ${longName}`);
+    check(`390px ${scheme}: a ${longName.length}-character person name in account labels fits`, shown && over <= 0 && spill.length === 0,
+      `${over}px too wide, cards too wide: ${spill.join(', ') || 'none'}, shown: ${shown}`);
+    if (SHOTS) await lp.page.screenshot({ path: path.join(SHOTS, `phone-long-name-${scheme}.png`), fullPage: true });
+    await lp.ctx.close();
+  }
 });
 
 section('guard', async () => {
@@ -798,6 +828,9 @@ section('import-safety', async () => {
   const { ctx, page } = await openPage({});
   const good = await page.evaluate(() => JSON.parse(JSON.stringify(window.__hbp.state())));
   const variant = (fn) => { const st = JSON.parse(JSON.stringify(good)); fn(st); return st; };
+  // An own key named "__proto__" (assigning one would set the prototype instead); JSON.stringify writes it out.
+  const own = (o, k, v) => Object.defineProperty(o, k, { value: v, enumerable: true, writable: true, configurable: true });
+  const spendOf = (st) => st.acctOrder.filter((a) => st.accounts[a].kind === 'spend');
   const files = {
     'check-in without spend rows': variant((st) => { st.checkins = [{ month: '2026-10', scn: 'now', scnName: 'Now', startedAt: 0, by: '', goals: [], fund: null }]; }),
     'category id with markup': variant((st) => { st.cats[0].id = 'x"><img src=x onerror="window.__pwned=1">'; }),
@@ -811,6 +844,24 @@ section('import-safety', async () => {
       sv.forEach((a) => { delete st.accounts[a]; }); st.acctOrder = st.acctOrder.filter((a) => !sv.includes(a)); st.fund.acct = '';
     }),
     'unknown split mode': variant((st) => { st.scenarios[0].split.mode = 'half'; }),
+    // Ids are also keys of plain objects, so names every object inherits are refused.
+    'person id __proto__': variant((st) => { st.people[0].id = '__proto__'; }),
+    'person id constructor': variant((st) => { st.people[0].id = 'constructor'; }),
+    'person id toString': variant((st) => { st.people[0].id = 'toString'; }),
+    'account id constructor': variant((st) => { st.accounts.constructor = { name: 'X', note: '', kind: 'spend', owner: '' }; st.acctOrder.push('constructor'); }),
+    'account id __proto__': variant((st) => { own(st.accounts, '__proto__', { name: 'X', note: '', kind: 'save', owner: '' }); st.acctOrder.push('__proto__'); }),
+    'split percentage keyed __proto__': variant((st) => { own(st.scenarios[0].split.pct, '__proto__', 50); }),
+    'split percentage keyed toString': variant((st) => { st.scenarios[0].split.pct.toString = 50; }),
+    'an account listed twice in acctOrder': variant((st) => { st.acctOrder.push(st.acctOrder[0]); }),
+    'two people with one id': variant((st) => { st.people.push({ id: st.people[0].id, name: 'Twin' }); }),
+    'income who with markup': variant((st) => { st.scenarios[0].incomes[0].who = 'x"><b>'; }),
+    'income to with markup': variant((st) => { st.scenarios[0].incomes[0].to = 'x"><b>'; }),
+    'split percentage key with markup': variant((st) => { st.scenarios[0].split.pct['x"><b>'] = 10; }),
+    'no spending account': variant((st) => {
+      const sp = spendOf(st);
+      sp.forEach((a) => { delete st.accounts[a]; }); st.acctOrder = st.acctOrder.filter((a) => !sp.includes(a));
+    }),
+    'yearly-costs fund in a spending account': variant((st) => { st.fund.acct = spendOf(st)[0]; }),
   };
   for (const [name, st] of Object.entries(files)) {
     await page.reload({ waitUntil: 'networkidle' });
@@ -907,6 +958,9 @@ section('accounts', async () => {
   // Pay lands in "My checking · Person 1": a label that long is shortened to fit the diagram (the steps show it in full).
   const runOver = await page.$$eval('.flow svg text', (els) => els.filter((t) => t.getBBox().x + t.getBBox().width > t.ownerSVGElement.viewBox.baseVal.width + 0.5).map((t) => t.textContent));
   check('the payday diagram’s labels fit inside it', runOver.length === 0 && (await page.locator('.steps').innerText()).includes('Keep in My checking · Person 1'), JSON.stringify(runOver));
+  const tips = await page.$$eval('.flow svg text.flow-l', (els) => els.filter((t) => t.querySelector('title')).map((t) => ({ tip: t.querySelector('title').textContent, shown: t.lastChild.textContent })));
+  check('a shortened diagram label has its full text as a tooltip',
+    tips.some((x) => x.tip === 'Stays in My checking · Person 1' && x.shown.endsWith('…')), JSON.stringify(tips));
 
   await page.click('[data-act="add-acct"][data-kind="spend"]');
   let s = await st();
@@ -1001,6 +1055,55 @@ section('accounts', async () => {
   check('an account armed for removal that becomes used is disarmed', armed === 'Remove?' && used === 'used by 1' && freed === '×',
     JSON.stringify({ armed, used, freed }));
   await u.ctx.close();
+
+  // The owner's name is left out of a label only when the account's name has it as a whole word (any case).
+  const wl = await openPage({ storage: minPlan((p) => {
+    p.people = [{ id: 'p1', name: 'Ed' }, { id: 'p2', name: 'Alex' }, { id: 'p3', name: 'Kim (K)' }];
+    p.accounts.s = { name: 'Shared savings', note: '', kind: 'save', owner: 'p1' };
+    p.accounts.a = { name: 'Alex checking', note: '', kind: 'spend', owner: 'p2' };
+    p.accounts.k = { name: 'kim (k) card', note: '', kind: 'spend', owner: 'p3' };
+    p.acctOrder.push('a', 'k');
+    p.scenarios[0].incomes.push({ id: 'i1', name: 'Pay', amt: 1000, who: 'p1', to: 'c' });
+    p.scenarios[0].lines.push({ id: 'l1', g: 'save', name: 'Saving', amt: 100, f: 'mo', acct: 's' },
+      { id: 'l2', g: 'need', name: 'Bills', amt: 100, f: 'mo', acct: 'a', cat: '', due: 0 },
+      { id: 'l3', g: 'want', name: 'Fun', amt: 50, f: 'mo', acct: 'k', cat: '', due: 0 });
+  }) });
+  const steps = await wl.page.$$eval('.steps li > span:first-child', (els) => els.map((e) => e.textContent));
+  check('an owner’s name is left out of a label only when the account’s name has it as a whole word',
+    (await loadedScn(wl.page)) === 'm' && isDeepStrictEqual(steps, ['Move to Shared savings · Ed', 'Move to Alex checking', 'Move to kim (k) card', 'Keep in Checking']),
+    JSON.stringify(steps));
+  await wl.ctx.close();
+
+  // The example has two accounts named "Checking": a closed menu has to say whose it is, since in separate pay that decides who pays.
+  const ex = await openPage({});
+  const exs = await ex.page.evaluate(() => window.__hbp.state());
+  const alex = exs.people[0].id, jchk = exs.acctOrder[0], achk = exs.acctOrder.find((a) => exs.accounts[a].owner === alex);
+  const mine = await lineId(ex.page, 'Personal spending: Alex'), rent = await lineId(ex.page, 'Rent or mortgage');
+  const closed = (l) => ex.page.evaluate((x) => document.getElementById(`c-${x}`).selectedOptions[0].textContent, l);
+  const typedIn = async () => ({ text: await closed(mine), focus: await ex.page.evaluate(() => document.activeElement.id) });
+  check('a closed account menu says whose account it is', (await closed(mine)) === 'Checking · Alex', await closed(mine));
+  await ex.page.click(`#pn-${alex}`);
+  await ex.page.keyboard.press('Control+A');
+  await ex.page.keyboard.type('Al');
+  let seen = await typedIn();
+  check('renaming the owner renames it in closed menus as you type, keeping focus', seen.text === 'Checking · Al' && seen.focus === `pn-${alex}`, JSON.stringify(seen));
+  await ex.page.click(`#an-${achk}`);
+  await ex.page.keyboard.press('Control+A');
+  await ex.page.keyboard.type('Everyday');
+  seen = await typedIn();
+  check('renaming the account keeps its owner in closed menus, keeping focus', seen.text === 'Everyday · Al' && seen.focus === `an-${achk}`, JSON.stringify(seen));
+  // An account with no name: its input stays empty, and every label and menu says "Untitled account".
+  await ex.page.fill(`#an-${jchk}`, '');
+  await ex.page.fill(`#an-${achk}`, '');
+  const blank = async () => ({ rent: await closed(rent), mine: await closed(mine), value: await ex.page.inputValue(`#an-${jchk}`), pay: await cardText(ex.page, 'transfers') });
+  let un = await blank();
+  check('an account with no name shows as "Untitled account" as you type',
+    un.rent === 'Untitled account' && un.mine === 'Untitled account · Al' && un.value === '' &&
+    un.pay.includes('Keep in Untitled account') && un.pay.includes('Move to Untitled account · Al'), JSON.stringify(un));
+  await ex.page.click('[data-act="add-acct"][data-kind="save"]'); // draws every menu again
+  un = await blank();
+  check('and when its menus are drawn again', un.rent === 'Untitled account' && un.mine === 'Untitled account · Al' && un.value === '', JSON.stringify(un));
+  await ex.ctx.close();
 });
 
 // Two windows of the app on one device share localStorage. Opens both in one browser context.
@@ -1113,6 +1216,18 @@ section('income', async () => {
   await b.page.reload({ waitUntil: 'networkidle' });
   check('pay set to land in a savings account lands in the first spending account', (await b.page.evaluate(() => window.__hbp.payMode().land)) === 'jchk');
   await b.ctx.close();
+
+  // An income naming a person who no longer exists is the first person's pay, in its menu and in People as in the payday plan.
+  const g = await openPage({ storage: minPlan((p) => {
+    p.people.push({ id: 'p2', name: 'Kit' });
+    p.scenarios[0].incomes.push({ id: 'i1', name: 'Pay', amt: 1000, who: 'ghost', to: 'c' });
+  }) });
+  const menu = await g.page.evaluate(() => { const sel = document.getElementById('iw-i1'); return { value: sel.value, options: Array.from(sel.options).map((o) => o.value) }; });
+  const meta = await g.page.$$eval('.person-row .p-m', (els) => els.map((e) => e.textContent));
+  check('an income whose person is gone shows as the first person’s pay in its menu and in People',
+    (await loadedScn(g.page)) === 'm' && menu.value === 'p1' && !menu.options.includes('ghost') && meta[0].includes('$1,000 take-home') && meta[1].includes('$0 take-home'),
+    JSON.stringify({ menu, meta }));
+  await g.ctx.close();
 });
 
 // Two people whose pay lands in their own checking accounts, with the yearly-costs fund on.
@@ -1164,6 +1279,17 @@ section('separate', async () => {
   check('leftovers add up to what is left to assign', near(pA.L + pS.L, 2200), `${pA.L} + ${pS.L}`);
   check('the split control shows when pay lands in two accounts', await page.locator('#split').isVisible());
   check('no percentage inputs unless percentages are set', (await page.locator('[data-scope="split"][data-field="pct"]').count()) === 0);
+  // Typing an amount re-draws nothing in the editor (refresh()), yet the split control follows pooled vs separate.
+  const typedPay = async () => ({ shown: await page.locator('#split').isVisible(), focus: await page.evaluate(() => document.activeElement.id) });
+  await page.click('#ia-is');
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('0');
+  const zero = await typedPay();
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('1000');
+  const back = await typedPay();
+  check('typing an amount hides and shows the split control, keeping focus',
+    !zero.shown && zero.focus === 'ia-is' && back.shown && back.focus === 'ia-is', JSON.stringify({ zero, back }));
   let pay = await cardText(page, 'transfers');
   check('each person gets their own transfers', pay.includes('Alex’s pay') && pay.includes('Sam’s pay'), pay);
   check('the headings say how much lands where', pay.includes('Alex’s pay · $3,000 into Checking · Alex') && pay.includes('Sam’s pay · $1,000 into Checking · Sam'), pay);
@@ -1227,6 +1353,19 @@ section('separate', async () => {
   check('a person with two incomes splits their transfers by amount', sp && near(js(sp), 650) && near(alex.incomes[0].moves.find((m) => m.a === 'js').amt, 650 * 6 / 7) &&
     near(alex.incomes[1].moves.find((m) => m.a === 'js').amt, 650 / 7), JSON.stringify(alex));
   check('each of their incomes gets its own heading', pay.includes('Alex pay · $3,000 into Checking · Alex') && pay.includes('Side gig · $500 into Joint checking'), pay);
+  // Under each income, a step's "why" names that income's part of each share, so its amounts add up to the step.
+  const whys = await b.page.evaluate(() => Array.from(document.querySelectorAll('.pp[data-person="pa"] .steps li')).map((li) => {
+    const num = (x) => Number(x.replace(/[^0-9.]/g, ''));
+    const parts = li.querySelector('.why').textContent.split(' + ');
+    const sum = parts.reduce((t, part) => {
+      const share = part.match(/^(\d+)% of .*\$([\d,]+)$/), dollars = part.match(/\$([\d,]+)/);
+      return t + (share ? Number(share[1]) / 100 * num(share[2]) : dollars ? num(dollars[1]) : 0);
+    }, 0);
+    return { step: li.children[0].textContent, amt: num(li.children[1].textContent), why: parts, sum };
+  }));
+  const toJs = whys.filter((x) => x.step === 'Move to Joint savings');
+  check('for a person with two incomes, each step’s “why” amounts add up to the step',
+    whys.length === 6 && toJs.length === 2 && whys.every((x) => Math.abs(x.amt - x.sum) <= 1), JSON.stringify(whys));
   // Set percentages give Sam a share of shared costs that nobody's pay covers.
   await b.page.selectOption('#split-mode', 'custom');
   await b.page.fill('#sp-pa', '70');
@@ -1316,6 +1455,14 @@ section('two-windows', async () => {
   check('an unreadable value from another window is backed up',
     await until(w.b, (k) => localStorage.getItem(k) === '{"broken":', BACKUP_KEY));
   check('and this window keeps its own plan', (await firstAmount(w.b)) === '1111');
+  await w.ctx.close();
+
+  // After an upgrade, the banner asking for names still applies once another window saves, so it stays.
+  w = await twoWindows({ storage: OLD() });
+  await editAndSave(w.b, '1111');
+  check('a window asking for names shows the other window’s edit', await until(w.a, (sel) => document.querySelector(sel).value === '1111', AMT));
+  const ask = await w.a.locator('#banner').innerText();
+  check('and keeps asking for names', ask.includes('add the people in your household'), ask);
   await w.ctx.close();
 });
 
