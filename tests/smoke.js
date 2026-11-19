@@ -143,6 +143,7 @@ section('basics', async () => {
   page.on('response', (r) => { if (r.url().startsWith('https://fonts.googleapis.com/')) fontsCss = r.status(); });
   await page.goto(APP_URL, { waitUntil: 'networkidle' });
   check('app renders its budget lines', (await page.locator(AMT).count()) > 0);
+  check('the page never says “line”', !/\blines?\b/i.test(await page.locator('body').innerText()));
 
   if (fontsCss === 'no response') {
     warn('Google Fonts', 'fonts.googleapis.com unreachable from here; skipped');
@@ -394,9 +395,11 @@ section('migration', async () => {
   const c = await openPage({});
   const ex = await c.page.evaluate(() => window.__hbp.state());
   const car = lines(ex).find((l) => l.name === 'Car registration & maintenance');
-  check(`example plan is v${DATA_VERSION} with six categories and the fund on`,
-    ex.v === DATA_VERSION && ex.cats.length === 6 && ex.fund.acct === 'jsav' && car && car.due === 3 && !!car.cat,
-    JSON.stringify({ v: ex.v, cats: ex.cats && ex.cats.length, fund: ex.fund }));
+  const gifts = lines(ex).find((l) => l.name === 'Gifts & holidays');
+  check('the example is one generic scenario with two people, pooled',
+    ex.v === 3 && ex.scenarios.length === 1 && ex.scenarios[0].name === 'Example' && ex.people.map((p) => p.name).join() === 'Alex,Sam' &&
+    ex.cats.length === 6 && ex.accounts[ex.fund.acct].name === 'Joint savings' && car && car.due === 3 && !!car.cat && gifts && gifts.due === 12 &&
+    new Set(ex.scenarios[0].incomes.map((x) => x.to)).size === 1, JSON.stringify({ n: ex.scenarios.length, people: ex.people }));
   await c.ctx.close();
 });
 
@@ -636,12 +639,17 @@ section('tour', async () => {
   check('"Not now" stops the offer on this device', !(await page.locator('#banner').innerText()).includes('New here?'));
 
   await page.click('#tour-btn');
-  check('the Tour button opens step 1 of 17', (await page.locator('#tour').isVisible()) && (await page.locator('#tour').innerText()).includes('1 of 17'));
-  const missed = [];
-  for (let i = 2; i <= 17; i++) {
+  check('the Tour button opens step 1 of 18', (await page.locator('#tour').isVisible()) && (await page.locator('#tour').innerText()).includes('1 of 18'));
+  const missed = [], texts = [], titles = [];
+  const grab = async () => { texts.push(await page.locator('#tour-text').innerText()); titles.push(await page.locator('#tour-title').innerText()); };
+  await grab();
+  for (let i = 2; i <= 18; i++) {
     await page.keyboard.press('ArrowRight');
     if (!(await tourStepShown(page))) missed.push(i);
+    await grab();
   }
+  check('no tour step says “line”', texts.every((t) => !/\blines?\b/i.test(t)), texts.filter((t) => /\blines?\b/i.test(t)).join(' | '));
+  check('the tour has a People step before Accounts', titles.indexOf('People') >= 0 && titles.indexOf('People') === titles.indexOf('Accounts') - 1, titles.join(' | '));
   check('every step scrolls its part into view and outlines it', missed.length === 0, `steps not shown: ${missed.join(', ')}`);
   check('the last step offers Finish', (await page.locator('#tour').innerText()).includes('Finish'));
   await page.click('#tour [data-tour-act="next"]');
@@ -658,7 +666,7 @@ section('tour', async () => {
   const ph = await openPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
   await ph.page.click('[data-act="tour-start"]');
   let worst = 0;
-  for (let i = 2; i <= 17; i++) {
+  for (let i = 2; i <= 18; i++) {
     await ph.page.keyboard.press('ArrowRight');
     await tourStepShown(ph.page);
     if (i === 8 && SHOTS) await ph.page.screenshot({ path: path.join(SHOTS, 'phone-tour.png') });

@@ -20,7 +20,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Public+Sans:wght@400;500;600;700&display=swap">
 <style>
 /* Layout idea: a ledger-style planning tool. Summary of where the month's pay goes on top,
-   editable budget lines on the left, the payday transfer plan and goals on the right. */
+   editable budget items on the left, the payday transfer plan and goals on the right. */
 :root {
   --bg: #f3f5f9;
   --surface: #ffffff;
@@ -480,110 +480,77 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function monthLong(key) { var i = monthIndex(key); return MONTHS[((i % 12) + 12) % 12]; }
   function monthLabel(key) { return monthLong(key).slice(0, 3) + ' ' + Math.floor(monthIndex(key) / 12); }
 
-  /* Example plan shown on first open. Real numbers live only on your devices and in plan files you export.
-     For now it is the v2 example, upgraded like any stored v2 plan. */
+  /* Example plan shown on first open: generic people and numbers. Real numbers live only on your devices
+     and in plan files you export. */
   function defaults() {
     var cats = ['Bills & utilities', 'Groceries', 'Transportation', 'Eating out & fun', 'Personal', 'Gifts']
       .map(function (name) { return { id: nid(), name: name }; });
     var CAT_OF = {
-      'Rent (not paying yet)': 0, 'Rent': 0, 'Utilities (electric, gas, water)': 0, 'Internet': 0, 'Phone': 0, 'Insurance (car, renters)': 0,
+      'Rent or mortgage': 0, 'Utilities (electric, gas, water)': 0, 'Internet': 0, 'Phone': 0, 'Insurance (car, renters)': 0,
       'Groceries & household supplies': 1,
       'Gas, transit & parking': 2, 'Car registration & maintenance': 2,
       'Dining out & takeout': 3, 'Entertainment & outings': 3, 'Subscriptions (streaming, apps)': 3,
       'Health costs (copays, prescriptions)': 4, 'Personal care': 4, 'Shopping & clothing': 4,
+      'Personal spending: Alex': 4, 'Personal spending: Sam': 4,
       'Gifts & holidays': 5
     };
     var DUE = { 'Car registration & maintenance': 3, 'Gifts & holidays': 12 };
-    var p = example();
-    p.cats = cats;
-    p.scenarios.forEach(function (s) {
-      s.lines.forEach(function (l) {
-        if (l.g !== 'need' && l.g !== 'want') return;
-        l.cat = CAT_OF[l.name] !== undefined ? cats[CAT_OF[l.name]].id : '';
-        l.due = DUE[l.name] || 0;
-        if (l.goal) l.goal.by = '';
-      });
-      s.lines.forEach(function (l) {
-        if (l.goal && /^Move-in fund/.test(l.name)) l.goal.by = monthKey(monthIndex(thisMonth()) + 12);
-      });
+    var alex = nid(), sam = nid(), jchk = nid(), jsav = nid(), inv = nid(), achk = nid(), schk = nid();
+    var items = [
+      L('need', 'Rent or mortgage', 1800, 'mo', jchk),
+      L('need', 'Utilities (electric, gas, water)', 180, 'mo', jchk),
+      L('need', 'Internet', 60, 'mo', jchk),
+      L('need', 'Phone', 100, 'mo', jchk),
+      L('need', 'Groceries & household supplies', 700, 'mo', jchk),
+      L('need', 'Gas, transit & parking', 250, 'mo', jchk),
+      L('need', 'Insurance (car, renters)', 220, 'mo', jchk),
+      L('need', 'Health costs (copays, prescriptions)', 80, 'mo', jchk),
+      L('need', 'Car registration & maintenance', 900, 'yr', jchk),
+      L('save', 'Emergency fund', 600, 'mo', jsav, { mode: 'months', months: 6, amount: 0, saved: 0 }),
+      L('save', 'Vacation', 300, 'mo', jsav, { mode: 'amount', months: 6, amount: 3600, saved: 0, by: monthKey(monthIndex(thisMonth()) + 12) }),
+      L('save', 'Retirement / investing', 500, 'mo', inv),
+      L('want', 'Dining out & takeout', 300, 'mo', jchk),
+      L('want', 'Entertainment & outings', 150, 'mo', jchk),
+      L('want', 'Subscriptions (streaming, apps)', 50, 'mo', jchk),
+      L('want', 'Shopping & clothing', 150, 'mo', jchk),
+      L('want', 'Personal care', 80, 'mo', jchk),
+      L('want', 'Gifts & holidays', 1200, 'yr', jchk),
+      L('want', 'Personal spending: Alex', 150, 'mo', achk),
+      L('want', 'Personal spending: Sam', 150, 'mo', schk),
+      L('want', 'Buffer for surprises', 100, 'mo', jchk)
+    ];
+    items.forEach(function (l) {
+      if (l.g !== 'need' && l.g !== 'want') return;
+      l.cat = CAT_OF[l.name] !== undefined ? cats[CAT_OF[l.name]].id : '';
+      l.due = DUE[l.name] || 0;
     });
-    return migrate(p);
-  }
-
-  function example() {
+    var accounts = {};
+    accounts[jchk] = { name: 'Joint checking', note: 'Shared bills', kind: 'spend', owner: '' };
+    accounts[jsav] = { name: 'Joint savings', note: 'Emergency fund and vacation', kind: 'save', owner: '' };
+    accounts[inv] = { name: 'Retirement / investing', note: 'IRA or brokerage', kind: 'save', owner: '' };
+    accounts[achk] = { name: 'Checking', note: 'Own spending', kind: 'spend', owner: alex };
+    accounts[schk] = { name: 'Checking', note: 'Own spending', kind: 'spend', owner: sam };
     return {
-      v: 2,
-      cats: [],
-      checkins: [],
-      fund: { acct: 'jsav', saved: 0 },
+      v: 3,
       touched: false,
       modifiedAt: 0,
       lastSync: null,
-      active: 'now',
-      accounts: {
-        jchk: { name: 'Joint checking', note: 'Shared bills' },
-        mchk: { name: 'My checking', note: 'My own spending' },
-        jsav: { name: 'Joint savings', note: 'Emergency fund' },
-        msav: { name: 'My savings', note: 'Fun & vacation' },
-        inv: { name: 'Retirement / investing', note: 'IRA or brokerage' }
-      },
-      scenarios: [
-        {
-          id: 'now', name: 'Now', sub: 'One income, no rent yet', depositTo: 'mchk',
-          incomes: [{ id: nid(), name: 'My take-home pay', amt: 4000 }, { id: nid(), name: 'Partner take-home pay', amt: 0 }],
-          lines: [
-            L('need', 'Rent (not paying yet)', 0, 'mo', 'jchk'),
-            L('need', 'Utilities (electric, gas, water)', 120, 'mo', 'jchk'),
-            L('need', 'Internet', 60, 'mo', 'jchk'),
-            L('need', 'Phone', 80, 'mo', 'jchk'),
-            L('need', 'Groceries & household supplies', 600, 'mo', 'jchk'),
-            L('need', 'Gas, transit & parking', 150, 'mo', 'jchk'),
-            L('need', 'Insurance (car, renters)', 100, 'mo', 'jchk'),
-            L('need', 'Health costs (copays, prescriptions)', 50, 'mo', 'jchk'),
-            L('need', 'Car registration & maintenance', 600, 'yr', 'jchk'),
-            L('save', 'Emergency fund', 700, 'mo', 'jsav', { mode: 'months', months: 6, amount: 0, saved: 0 }),
-            L('save', 'Fun & vacation', 300, 'mo', 'msav', { mode: 'amount', months: 6, amount: 3000, saved: 0 }),
-            L('save', 'Move-in fund (deposit, first month, movers)', 400, 'mo', 'jsav', { mode: 'amount', months: 6, amount: 6000, saved: 0 }),
-            L('save', 'Extra retirement / investing', 0, 'mo', 'inv'),
-            L('want', 'Dining out & takeout', 250, 'mo', 'jchk'),
-            L('want', 'Entertainment & outings', 120, 'mo', 'jchk'),
-            L('want', 'Subscriptions (streaming, apps)', 50, 'mo', 'jchk'),
-            L('want', 'Shopping & clothing', 120, 'mo', 'jchk'),
-            L('want', 'Personal care', 60, 'mo', 'jchk'),
-            L('want', 'Gifts & holidays', 800, 'yr', 'jchk'),
-            L('want', 'Personal spending: me', 150, 'mo', 'mchk'),
-            L('want', 'Personal spending: partner', 150, 'mo', 'jchk'),
-            L('want', 'Buffer for surprises', 100, 'mo', 'jchk')
-          ]
-        },
-        {
-          id: 'later', name: 'Both working + rent', sub: 'Both paychecks into joint', depositTo: 'jchk',
-          incomes: [{ id: nid(), name: 'My take-home pay', amt: 4000 }, { id: nid(), name: 'Partner take-home pay', amt: 0 }],
-          lines: [
-            L('need', 'Rent', 2500, 'mo', 'jchk'),
-            L('need', 'Utilities (electric, gas, water)', 150, 'mo', 'jchk'),
-            L('need', 'Internet', 60, 'mo', 'jchk'),
-            L('need', 'Phone', 80, 'mo', 'jchk'),
-            L('need', 'Groceries & household supplies', 650, 'mo', 'jchk'),
-            L('need', 'Gas, transit & parking', 200, 'mo', 'jchk'),
-            L('need', 'Insurance (car, renters)', 130, 'mo', 'jchk'),
-            L('need', 'Health costs (copays, prescriptions)', 50, 'mo', 'jchk'),
-            L('need', 'Car registration & maintenance', 600, 'yr', 'jchk'),
-            L('save', 'Emergency fund', 700, 'mo', 'jsav', { mode: 'months', months: 6, amount: 0, saved: 0 }),
-            L('save', 'Fun & vacation', 400, 'mo', 'msav', { mode: 'amount', months: 6, amount: 3000, saved: 0 }),
-            L('save', 'Extra retirement / investing', 0, 'mo', 'inv'),
-            L('want', 'Dining out & takeout', 300, 'mo', 'jchk'),
-            L('want', 'Entertainment & outings', 150, 'mo', 'jchk'),
-            L('want', 'Subscriptions (streaming, apps)', 50, 'mo', 'jchk'),
-            L('want', 'Shopping & clothing', 150, 'mo', 'jchk'),
-            L('want', 'Personal care', 60, 'mo', 'jchk'),
-            L('want', 'Gifts & holidays', 800, 'yr', 'jchk'),
-            L('want', 'Personal spending: me', 200, 'mo', 'mchk'),
-            L('want', 'Personal spending: partner', 200, 'mo', 'jchk'),
-            L('want', 'Buffer for surprises', 150, 'mo', 'jchk')
-          ]
-        }
-      ]
+      active: 'example',
+      people: [{ id: alex, name: 'Alex' }, { id: sam, name: 'Sam' }],
+      accounts: accounts,
+      acctOrder: [jchk, jsav, inv, achk, schk],
+      cats: cats,
+      fund: { acct: jsav, saved: 0 },
+      checkins: [],
+      scenarios: [{
+        id: 'example', name: 'Example', sub: 'Example numbers: replace them with yours', depositTo: jchk,
+        split: { mode: 'income', pct: {} },
+        incomes: [
+          { id: nid(), name: 'Take-home pay', amt: 3600, who: alex, to: jchk },
+          { id: nid(), name: 'Take-home pay', amt: 3000, who: sam, to: jchk }
+        ],
+        lines: items
+      }]
     };
   }
 
@@ -875,10 +842,10 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     info.date = monthLabel(monthKey(monthIndex(e ? e.ci.month : prevMonth(new Date())) + info.months));
     return info;
   }
-  var HD_NOTE = 'Enter these as monthly limits on your Honeydue categories. Group lines into categories in the Honeydue categories card. Savings stays out of Honeydue; the transfers above handle it.';
+  var HD_NOTE = 'Enter these as monthly limits on your Honeydue categories. Group items into categories in the Honeydue categories card. Savings stays out of Honeydue; the transfers above handle it.';
   var YEARLY_NOTE = 'includes yearly costs at 1/12 a month; expect a spike in the month they’re paid';
 
-  // Honeydue limits: one item per category (sum of its lines) and per line not in a category.
+  // Honeydue limits: one entry per category (sum of its items) and per item not in a category.
   function hdItems(s) {
     var items = [], byCat = {};
     state.cats.forEach(function (ct) {
@@ -1615,7 +1582,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       });
       h += '</div>';
     }
-    h += '<p class="note">' + (ys.length ? '' : 'No yearly items yet. ') + 'To add one, add a line in Necessities or Variable and set How often to yearly.</p>';
+    h += '<p class="note">' + (ys.length ? '' : 'No yearly items yet. ') + 'To add one, add an item in Necessities or Variable and set How often to yearly.</p>';
     return h + '<div data-out="fund-cal"></div></section>';
   }
   function fundCalHTML(s) {
@@ -1654,7 +1621,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     var n = state.cats.length;
     var h = '<section class="card" aria-label="Honeydue categories" data-tour="categories">' +
       '<div class="card-head"><div><h2>Honeydue categories</h2>' +
-      '<p class="desc">Group your lines into the categories you use in Honeydue. Change them any time; the Honeydue limits update as you go.</p></div>' +
+      '<p class="desc">Group your items into the categories you use in Honeydue. Change them any time; the Honeydue limits update as you go.</p></div>' +
       '<span class="meta">' + n + ' categor' + (n === 1 ? 'y' : 'ies') + '</span></div><div class="rows">';
     state.cats.forEach(function (ct) {
       var armed = pendingDeleteCat === ct.id;
@@ -1668,12 +1635,12 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (!n) h += '<p class="note">No categories yet. Add the ones you use in Honeydue.</p>';
     h += '</div><button class="btn ghost add" type="button" data-act="add-cat">+ Add category</button>';
     var lines = s.lines.filter(isSpend);
-    h += '<div class="cat-lines"><div class="rows-head" aria-hidden="true" style="display:grid;grid-template-columns:minmax(0,1fr) auto"><span>Line</span><span>Category</span></div>';
+    h += '<div class="cat-lines"><div class="rows-head" aria-hidden="true" style="display:grid;grid-template-columns:minmax(0,1fr) auto"><span>Item</span><span>Category</span></div>';
     lines.forEach(function (l) {
       h += '<div class="cat-line"><label for="lc-' + l.id + '" data-out="ln-' + l.id + '">' + lineLabel(l) + '</label>' +
         '<select class="in" id="lc-' + l.id + '" data-scope="line" data-id="' + l.id + '" data-field="cat">' + catOptions(l.cat) + '</select></div>';
     });
-    if (!lines.length) h += '<p class="note">Add necessities or variable lines to group them.</p>';
+    if (!lines.length) h += '<p class="note">Add necessities or variable items to group them.</p>';
     return h + '</div></section>';
   }
 
@@ -1848,7 +1815,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       '<div class="sync-meta"><span><b>' + (blocked ? 'Not saved: a newer plan is stored on this device' : storageOk ? 'Saved on this device automatically' : 'Can’t save on this device') + '</b></span>' +
       '<span>' + last + '</span>' +
       (unsyncedEdits() ? '<span class="chip warn" style="align-self:flex-start">Edits not exported yet</span>' : '') + '</div>' +
-      '<label class="field" for="device-name">Your name (written into files you export)<input class="in" id="device-name" data-scope="device" data-field="name" value="' + esc(deviceName) + '" placeholder="e.g. J"></label>' +
+      '<label class="field" for="device-name">Your name (written into files you export)<input class="in" id="device-name" data-scope="device" data-field="name" value="' + esc(deviceName) + '" placeholder="e.g. Alex"></label>' +
       '<ol class="how"><li>Keep one plan file in a folder you both use (iCloud Drive, Google Drive, or send it by text).</li>' +
       '<li>After you change the plan, tap <b>Export plan file</b> and replace the old file.</li>' +
       '<li>On the other phone or laptop, tap <b>Import plan file</b> to pick up the changes.</li></ol>' +
@@ -1903,7 +1870,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
         (it.note ? '<span class="hd-note">' + esc(it.note) + '</span>' : '') +
         '</td><td class="r">' + money(it.amt) + ' / mo</td></tr>';
     });
-    if (!items.length) h += '<tr><td colspan="2" class="note">No spending lines yet.</td></tr>';
+    if (!items.length) h += '<tr><td colspan="2" class="note">No spending items yet.</td></tr>';
     var fs = fundSentence(s);
     h += '</table>';
     if (fs) h += '<p class="note hd-after">' + esc(fs) + '</p>';
@@ -2489,13 +2456,13 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     { sel: null, title: 'Welcome to your budget planner',
       text: 'This app plans your month; Honeydue tracks it day to day. This tour shows what each part tells you and what to do with it. Use the arrow keys or the buttons; Close ends it any time.' },
     { sel: '[data-tour="scenarios"]', title: 'Scenarios',
-      text: 'Each tab is a version of your plan, like now and after you both work and pay rent. Switch tabs to edit one, copy a tab to try a change without touching the original, or start a new one from scratch. The × on a tab deletes it.' },
+      text: 'Each tab is a version of your plan, like now and after a new job or a move. Switch tabs to edit one, copy a tab to try a change without touching the original, or start a new one from scratch. The × on a tab deletes it.' },
     { sel: '[data-tour="summary"]', title: 'Where the money goes',
       text: 'Take-home pay split into necessities, savings and variable spending, with what’s left to assign. The ticks mark the 50/30/20 rule of thumb: a reference point, not a target.' },
     { sel: '[data-tour="checkin"]', title: 'Monthly check-in',
       text: 'Once a month, type each category’s total from Honeydue and your savings balances. You’ll see what ran over or under and whether each goal is on track. Balances start as what the plan expected; correct only what differs.' },
     { sel: '[data-tour="income"]', title: 'Income',
-      text: 'Monthly take-home pay for each of you, after tax, and the account your paychecks land in. Every transfer starts from that account.' },
+      text: 'Monthly take-home pay after tax, with whose pay it is and the account it lands in. Every transfer starts from the account a paycheck lands in.' },
     { sel: '[data-tour="need"]', title: 'Necessities',
       text: 'Bills and essentials. Give each one how often it’s paid and the account it’s paid from; weekly and yearly amounts are converted to a monthly figure.' },
     { sel: '[data-tour="save"]', title: 'Savings',
@@ -2503,13 +2470,15 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     { sel: '[data-tour="want"]', title: 'Variable spending',
       text: 'Eating out, subscriptions, personal spending and a buffer for surprises. These are the amounts you’re most likely to adjust after a check-in.' },
     { sel: '[data-tour="categories"]', title: 'Honeydue categories',
-      text: 'Group your lines into the categories you use in Honeydue. Rename, add or delete them any time; the Honeydue limits add up the lines in each one.' },
+      text: 'Group your items into the categories you use in Honeydue. Rename, add or delete them any time; the Honeydue limits add up the items in each one.' },
     { sel: '[data-tour="yearly"]', title: 'Yearly costs',
       text: 'Set the month each yearly bill is paid. A twelfth is set aside each payday in the account you choose, and the calendar warns if a bill would come before the fund has enough.' },
+    { sel: '[data-tour="people"]', title: 'People',
+      text: 'Add everyone whose pay or accounts belong in the plan, and rename them. Each person can have their own accounts and their own take-home pay.' },
     { sel: '[data-tour="accounts"]', title: 'Accounts',
-      text: 'Rename these to match your banks. The names appear in the transfer plan and in every account menu.' },
+      text: 'Rename these to match your banks. Shared accounts are listed first, then each person’s own. The names appear in the transfer plan and in every account menu.' },
     { sel: '[data-tour="transfers"]', title: 'Payday transfer plan',
-      text: 'The recurring transfers to set up at your bank: how much moves from the account your pay lands in to each of the others. What stays behind covers spending paid from that account.' },
+      text: 'The recurring transfers to set up at your bank, from the account your pay lands in to each of the others. When pay is pooled you get one list; when it isn’t, each person gets their own, and shared costs are split by the rule you choose.' },
     { sel: '[data-tour="goals"]', title: 'Savings goals',
       text: 'Each goal’s balance, target and status: on track, behind, or how much more a month it needs. The yearly-costs fund is listed first when it’s on.' },
     { sel: '[data-tour="honeydue"]', title: 'Honeydue limits',
