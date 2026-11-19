@@ -249,6 +249,19 @@ input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-i
 .inc-row { display: grid; grid-template-columns: minmax(140px, 1fr) 110px 120px minmax(120px, 1fr) 30px; gap: 8px; align-items: center; }
 .inc-to { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); white-space: nowrap; }
 .inc-to .in { min-width: 0; flex: 1; }
+/* How shared costs split, shown in the Income card while pay lands in more than one account. */
+.split { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); padding-top: 14px; }
+.split[hidden] { display: none; }
+.split-mode { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 13px; font-weight: 500; color: var(--ink-2); }
+.split-mode .in { width: auto; max-width: 100%; }
+.split-pct { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.sp { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-width: 0; font-size: 14px; }
+.sp-n { min-width: 0; overflow-wrap: anywhere; }
+.pct-in { position: relative; display: flex; align-items: center; flex: none; }
+.pct-in .in { width: 78px; padding-right: 24px; text-align: right; font-variant-numeric: tabular-nums; }
+.pct-in .unit { position: absolute; right: 9px; color: var(--ink-3); font-size: 14px; pointer-events: none; }
+.sp-sum { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.sp-note { display: block; font-size: 12px; color: var(--ink-3); }
 
 .flow svg { width: 100%; height: auto; display: block; }
 .flow text { font-family: var(--font-body); font-size: 12px; fill: var(--ink); }
@@ -258,6 +271,12 @@ input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-i
 .steps li::before { counter-increment: s; content: counter(s); font-size: 12px; font-weight: 700; color: var(--ink-2); background: var(--surface-2); border-radius: 50%; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; }
 .steps li b { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .steps li .why { grid-column: 2 / 4; font-size: 12px; color: var(--ink-3); margin-top: -4px; }
+/* Separate pay: one block per person, with a sub-heading per income when they have several. */
+.pp { display: flex; flex-direction: column; gap: 8px; }
+.pp + .pp { border-top: 1px solid var(--line); padding-top: 14px; }
+.pp h3, .pp h4 { overflow-wrap: anywhere; }
+.pp h4 { margin: 4px 0 0; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.pp h4 .faint { display: block; font-size: 12px; font-weight: 500; }
 .note { font-size: 13px; color: var(--ink-2); }
 .alert { font-size: 13px; padding: 8px 10px; border-radius: 8px; background: var(--bad-bg); color: var(--bad); font-weight: 600; }
 
@@ -816,6 +835,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function isSpend(l) { return l.g === 'need' || l.g === 'want'; }
   function isYearly(l) { return isSpend(l) && l.f === 'yr'; }
   function fundOn() { return !!(state.fund && state.fund.acct); }
+  // Where an item's payday money goes: with the yearly-costs fund on, a yearly item's monthly share goes to the fund account.
+  function destOf(l) { return fundOn() && isYearly(l) ? state.fund.acct : l.acct; }
   function dueOf(l) { var d = parseInt(l.due, 10); return d >= 1 && d <= 12 ? d : 0; }
   function monthNum(key) { return ((monthIndex(key) % 12) + 12) % 12 + 1; }
 
@@ -830,7 +851,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       var m = monthly(l); if (g[l.g] === undefined) return;
       g[l.g] += m;
       // With the yearly-costs fund on, a yearly line's monthly share is moved to the fund each payday.
-      var a = toFund && isYearly(l) ? state.fund.acct : l.acct;
+      var a = destOf(l);
       if (toFund && isYearly(l)) fund += m;
       by[a] = (by[a] || 0) + m;
     });
@@ -1132,10 +1153,14 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   // Where an income's pay lands: its account if that is a spending account, else the first spending account.
   function incTo(x) { return isKind(x.to, 'spend') ? x.to : acctsOfKind('spend')[0]; }
+  // An income is active from $0.50 a month: a $0 placeholder neither makes pay separate nor gets a share.
+  function isActive(x) { return n(x.amt) >= 0.5; }
+  // Whose pay an income is; one naming a person who no longer exists counts as the first person's, so no pay goes missing.
+  function incWho(x) { return findPerson(x.who) ? x.who : state.people[0].id; }
   // Pooled when all active incomes land in one account (or none is active); `land` is where the payday plan starts.
   function payMode(s) {
     var lands = [];
-    s.incomes.forEach(function (x) { if (x.amt >= 0.5) { var a = incTo(x); if (lands.indexOf(a) < 0) lands.push(a); } });
+    s.incomes.forEach(function (x) { if (isActive(x)) { var a = incTo(x); if (lands.indexOf(a) < 0) lands.push(a); } });
     var land = lands.length ? lands[0] : s.incomes.length ? incTo(s.incomes[0]) : isKind(s.depositTo, 'spend') ? s.depositTo : acctsOfKind('spend')[0];
     return { pooled: lands.length <= 1, land: land, lands: lands };
   }
@@ -1158,6 +1183,87 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       if (amt > 0.5) { items.push({ a: a, amt: amt }); moved += amt; }
     });
     return { land: land, items: items, moved: moved, keep: c.I - moved, keepPlanned: c.by[land] || 0 };
+  }
+
+  /* ---------- separate pay: who covers what ---------- */
+  // Each current person's take-home from this scenario's active incomes.
+  function payBy(s) {
+    var I = {};
+    state.people.forEach(function (p) { I[p.id] = 0; });
+    s.incomes.forEach(function (x) { if (isActive(x)) I[incWho(x)] += n(x.amt); });
+    return I;
+  }
+  // A person's "Set percentages" entry; a missing one counts as 0.
+  function splitPct(s, id) {
+    var pct = s.split && okMap(s.split.pct) ? s.split.pct : {};
+    return Object.prototype.hasOwnProperty.call(pct, id) ? n(pct[id]) : 0;
+  }
+  // Each current person's share of shared costs. They add up to 1 when anyone has pay, else all are 0.
+  // "Equally" splits among the people with pay; percentages are scaled to add up to 100%, and if they add up to 0, split equally.
+  function weights(s) {
+    var I = payBy(s), w = {}, tot = 0, paid = [], sum = 0, mode = s.split ? s.split.mode : 'income';
+    state.people.forEach(function (p) { w[p.id] = 0; tot += I[p.id]; if (I[p.id] > 0) paid.push(p.id); });
+    if (!paid.length) return w;
+    if (mode === 'custom') state.people.forEach(function (p) { sum += splitPct(s, p.id); });
+    state.people.forEach(function (p) {
+      if (mode === 'custom' && sum > 0) w[p.id] = splitPct(s, p.id) / sum;
+      else if (mode === 'equal' || mode === 'custom') w[p.id] = paid.indexOf(p.id) >= 0 ? 1 / paid.length : 0;
+      else w[p.id] = I[p.id] / tot;
+    });
+    return w;
+  }
+  // Person p's share of an item, by the account it is paid from or saved into (its bearer, not where its money goes):
+  // all of it from their own account, their weight from a shared one (or one whose owner no longer exists), none from someone else's.
+  function shareOf(w, pid, bearer) { var o = ownerOf(bearer); return o ? (o === pid ? 1 : 0) : w[pid]; }
+
+  // The payday plan when pay lands in more than one account; null while pooled. Every person with pay covers their share
+  // of each item, sent where calc() sends it (destOf: a yearly item's share goes to the fund account, still its bearer's cost).
+  // Someone with several incomes splits what they cover in proportion to amount. Each income moves its part to every account
+  // but the one it lands in; `keepPlanned` is its part of what is spent from there. `short` lists everyone whose share is more
+  // than their pay (for someone with no pay, only their share of shared items: their own accounts are in `unfunded`).
+  function splitPlan(s, c) {
+    if (payMode(s).pooled) return null;
+    var w = weights(s), I = payBy(s), O = {}, sharedOwed = {}, ids = acctIds();
+    state.people.forEach(function (p) { O[p.id] = {}; sharedOwed[p.id] = 0; });
+    s.lines.forEach(function (l) {
+      if (c.g[l.g] === undefined) return; // as calc() skips it
+      var m = monthly(l), r = destOf(l), shared = !ownerOf(l.acct);
+      state.people.forEach(function (p) {
+        var k = shareOf(w, p.id, l.acct) * m;
+        if (!k) return;
+        O[p.id][r] = (O[p.id][r] || 0) + k;
+        if (shared) sharedOwed[p.id] += k;
+      });
+    });
+    var people = [], short = [], unfunded = [];
+    state.people.forEach(function (p) {
+      var Ip = I[p.id], Op = O[p.id], owed = 0;
+      Object.keys(Op).forEach(function (a) { owed += Op[a]; });
+      if (Ip <= 0) {
+        if (sharedOwed[p.id] > 0.5) short.push({ id: p.id, amt: sharedOwed[p.id] });
+        return;
+      }
+      var incomes = [];
+      s.incomes.forEach(function (x) {
+        if (!isActive(x) || incWho(x) !== p.id) return;
+        var Ii = n(x.amt), part = Ii / Ip, d = incTo(x), moves = [], moved = 0;
+        ids.forEach(function (a) {
+          var t = part * (Op[a] || 0);
+          if (a !== d && t > 0.5) { moves.push({ a: a, amt: t }); moved += t; }
+        });
+        incomes.push({ id: x.id, land: d, I: Ii, moves: moves, keep: Ii - moved, keepPlanned: part * (Op[d] || 0) });
+      });
+      people.push({ id: p.id, I: Ip, L: Ip - owed, incomes: incomes });
+      if (owed - Ip > 0.5) short.push({ id: p.id, amt: owed - Ip });
+    });
+    // An account owned by someone with no pay: nobody covers its items (counting yearly ones whose share goes to the fund).
+    ids.forEach(function (a) {
+      var o = ownerOf(a), t = 0;
+      if (!o || I[o] > 0) return;
+      s.lines.forEach(function (l) { if (l.acct === a && c.g[l.g] !== undefined) t += monthly(l); });
+      if (t > 0.5) unfunded.push({ a: a, amt: t });
+    });
+    return { w: w, people: people, short: short, unfunded: unfunded };
   }
 
   /* ---------- formatting ---------- */
@@ -1273,6 +1379,36 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     return findPerson(sel) ? h : '<option value="' + esc(sel) + '" selected>' + esc(sel || 'Nobody') + '</option>' + h;
   }
 
+  var SPLIT_LABELS = { income: 'In proportion to take-home', equal: 'Equally', custom: 'Set percentages' };
+  // How shared costs split while pay lands in more than one account. Always drawn; refresh() hides it while pay is pooled,
+  // since typing an amount can change that without a re-draw.
+  function splitHTML(s) {
+    var mode = s.split ? s.split.mode : 'income';
+    var h = '<div class="split" id="split"' + (payMode(s).pooled ? ' hidden' : '') + '>' +
+      '<label class="split-mode" for="split-mode">Split shared costs<select class="in" id="split-mode" data-scope="split" data-field="mode">' +
+      SPLIT_MODES.map(function (m) { return '<option value="' + m + '"' + (m === mode ? ' selected' : '') + '>' + SPLIT_LABELS[m] + '</option>'; }).join('') +
+      '</select></label>';
+    if (mode === 'custom') {
+      h += '<div class="split-pct">';
+      state.people.forEach(function (p) {
+        var pct = s.split.pct, has = okMap(pct) && Object.prototype.hasOwnProperty.call(pct, p.id);
+        h += '<label class="sp" for="sp-' + p.id + '"><span class="sr-only">Percent of shared costs for</span>' +
+          '<span class="sp-n" data-out="spn-' + p.id + '">' + esc(personName(p.id)) + '</span>' +
+          '<span class="pct-in"><input class="in" type="number" inputmode="decimal" min="0" step="1" id="sp-' + p.id + '" data-scope="split" data-id="' + p.id + '" data-field="pct" value="' + (has ? esc(pct[p.id]) : '') + '">' +
+          '<span class="unit" aria-hidden="true">%</span></span></label>';
+      });
+      h += '<span class="sp-sum" data-out="split-sum"></span></div>';
+    }
+    return h + '</div>';
+  }
+  function splitSumHTML(s) {
+    var sum = 0;
+    state.people.forEach(function (p) { sum += splitPct(s, p.id); });
+    var h = 'adds up to <b>' + sum.toLocaleString('en-US', { maximumFractionDigits: 2 }) + '%</b>';
+    if (sum <= 0) return h + '<span class="sp-note">With no percentages set, shared costs are split equally</span>';
+    return Math.abs(sum - 100) < 0.005 ? h : h + '<span class="sp-note">Shares are scaled to add up to 100%</span>';
+  }
+
   function editorHTML(s) {
     var h = checkinHTML();
     h += '<section class="card" aria-label="Income" data-tour="income">' +
@@ -1290,7 +1426,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     });
     h += '</div><div class="actions">' +
       '<button class="btn ghost add" type="button" data-act="add-inc">+ Add income</button>' +
-      '</div></section>';
+      '</div>' + splitHTML(s) + '</section>';
 
     GROUPS.forEach(function (G) {
       var lines = s.lines.filter(function (l) { return l.g === G.key; });
@@ -1585,11 +1721,14 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     renderSide(s, c);
     renderTabs();
     setOut('income-total', money(c.I) + ' a month');
+    var split = document.getElementById('split');
+    if (split) split.hidden = payMode(s).pooled;
+    setOut('split-sum', splitSumHTML(s));
     GROUPS.forEach(function (G) {
       setOut('gt-' + G.key, money(c.g[G.key]));
       setOut('gp-' + G.key, c.I > 0 ? pct(c.g[G.key] / c.I) + ' of income' : '');
     });
-    state.people.forEach(function (p) { setOut('pm-' + p.id, esc(peopleMeta(s, p.id))); });
+    state.people.forEach(function (p) { setOut('pm-' + p.id, esc(peopleMeta(s, p.id))); setOut('spn-' + p.id, esc(personName(p.id))); });
     state.cats.forEach(function (ct) { setOut('ct-' + ct.id, money(catTotal(s, ct.id)) + ' / mo'); });
     refreshCheckin();
     setOut('fund-c', money(fundMonthly(s)));
@@ -1718,9 +1857,10 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   }
 
   function renderSide(s, c) {
-    var t = transfers(s, c);
+    // Pooled pay: one diagram and one list. Separate pay: a list per person (splitPlan is null while pooled).
+    var sp = splitPlan(s, c), t = sp ? null : transfers(s, c);
     var h = '<section class="card flow" aria-label="Payday transfer plan" data-tour="transfers"><div class="card-head"><h2>Payday transfer plan</h2><span class="meta">Set these up as recurring transfers</span></div>' +
-      flowSVG(t, c) + stepsHTML(s, c, t) + '</section>';
+      (sp ? personStepsHTML(s, sp) : flowSVG(t, c) + stepsHTML(s, c, t)) + '</section>';
 
     var goals = s.lines.filter(function (l) { return l.g === 'save' && goalInfo(l, c); });
     h += '<section class="card" aria-label="Savings goals" data-tour="goals"><div class="card-head"><h2>Savings goals</h2></div>';
@@ -1868,6 +2008,58 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     return h;
   }
 
+  // The kinds a step's "why" text names, as in stepsHTML: the groups, and yearly items while their share goes to the fund.
+  var SHARE_KINDS = GROUPS.map(function (G) { return { key: G.key, name: G.name.toLowerCase() }; }).concat({ key: 'yearly', name: 'yearly costs' });
+  // What person p covers in account a, e.g. "75% of shared savings $500 + Alex’s yearly costs $100".
+  function shareParts(s, w, pid, a) {
+    var parts = [];
+    SHARE_KINDS.forEach(function (k) {
+      var shared = 0, own = 0;
+      s.lines.forEach(function (l) {
+        if ((fundOn() && isYearly(l) ? 'yearly' : l.g) !== k.key || destOf(l) !== a) return;
+        var o = ownerOf(l.acct);
+        if (!o) shared += monthly(l); else if (o === pid) own += monthly(l);
+      });
+      if (shared * w[pid] > 0.5) parts.push(pct(w[pid]) + ' of shared ' + k.name + ' ' + money(shared));
+      if (own > 0.5) parts.push(personName(pid) + '’s ' + k.name + ' ' + money(own));
+    });
+    return parts;
+  }
+  function shortText(id, amt) {
+    var who = personName(id);
+    return who + '’s share is ' + money(amt) + ' more than ' + who + '’s pay. Lower some amounts or change the split.';
+  }
+  // Separate pay: each person with pay gets their own steps, one list per income, then the warnings.
+  function personStepsHTML(s, sp) {
+    var h = '<p class="note">Pay lands in more than one account, so each person sets up their own transfers.</p>';
+    sp.people.forEach(function (pp) {
+      var who = personName(pp.id), many = pp.incomes.length > 1;
+      h += '<div class="pp" data-person="' + esc(pp.id) + '"><h3>' + esc(who + '’s pay · ' + money(pp.I) + (many ? '' : ' into ' + acctLabel(pp.incomes[0].land))) + '</h3>';
+      pp.incomes.forEach(function (x) {
+        var inc = findInc(s, x.id), name = String(inc && inc.name || '').trim() || 'Untitled income';
+        if (many) h += '<h4>' + esc(name + ' · ' + money(x.I) + ' into ' + acctLabel(x.land)) + '<span class="faint">' + esc('Covers ' + pct(x.I / pp.I) + ' of what ' + who + ' pays for') + '</span></h4>';
+        h += '<ol class="steps">';
+        x.moves.forEach(function (m) {
+          h += '<li><span>Move to <b>' + esc(acctLabel(m.a)) + '</b></span><b>' + money(m.amt) + '</b><span class="why">' + esc(shareParts(s, sp.w, pp.id, m.a).join(' + ')) + '</span></li>';
+        });
+        var kept = shareParts(s, sp.w, pp.id, x.land), unassigned = Math.max(x.keep - x.keepPlanned, 0);
+        if (unassigned > 0.5) kept.push(money(unassigned) + ' not assigned yet');
+        h += '<li><span>Keep in <b>' + esc(acctLabel(x.land)) + '</b></span><b>' + money(Math.max(x.keep, 0)) + '</b><span class="why">' + esc(kept.join(' + ') || 'nothing planned here') + '</span></li></ol>';
+      });
+      sp.short.forEach(function (x) { if (x.id === pp.id) h += '<p class="alert">' + esc(shortText(x.id, x.amt)) + '</p>'; });
+      h += '</div>';
+    });
+    // People with no pay: a share of shared items (set percentages), and accounts of theirs with items in them.
+    sp.short.forEach(function (x) {
+      if (!sp.people.some(function (pp) { return pp.id === x.id; })) h += '<p class="alert">' + esc(shortText(x.id, x.amt)) + '</p>';
+    });
+    sp.unfunded.forEach(function (u) {
+      var who = personName(ownerOf(u.a));
+      h += '<p class="alert">' + esc('Nobody’s pay covers ' + acctLabel(u.a) + ' (' + money(u.amt) + '): ' + who + ' has no take-home in this scenario. Move those items to a shared account, or add ' + who + '’s pay.') + '</p>';
+    });
+    return h;
+  }
+
   function honeydueText(s) {
     var out = hdItems(s).map(function (it) {
       return it.name + ': ' + money(it.amt) + ' per month' +
@@ -2006,6 +2198,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     else if (sc === 'inc') { var x = findInc(s, id); if (!x || t.tagName === 'SELECT') return; x[f] = isNum ? n(v) : v; }
     else if (sc === 'goal') { var lg = findLine(s, id); if (!lg) return; if (t.tagName === 'SELECT') return; lg.goal = lg.goal || newGoal(); if (f === 'saved') setGoalBalance(lg, n(v)); else lg.goal[f] = n(v); }
     else if (sc === 'scn') { if (f === 'depositTo') return; s[f] = v; }
+    // A percentage in the editor column: refresh() keeps the input (and its focus) while the payday plan follows.
+    else if (sc === 'split') { if (t.tagName === 'SELECT' || f !== 'pct' || !findPerson(id)) return; s.split.pct[id] = n(v); }
     else if (sc === 'cat') {
       var ct = findCat(id); if (!ct) return;
       ct.name = v;
@@ -2042,6 +2236,12 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       return;
     }
     if (sc === 'fund' && f === 'acct') { state.fund.acct = v; changed(); rerenderEditor('fund-acct'); return; }
+    // "Set percentages" shows one input per person; the other modes show none.
+    if (sc === 'split' && f === 'mode') {
+      if (SPLIT_MODES.indexOf(v) < 0) return;
+      s.split.mode = v; changed(); rerenderEditor('split-mode');
+      return;
+    }
     // A new owner moves the account to that person's group, and changes its label and its place in every menu.
     if (sc === 'acct' && f === 'owner') {
       var oa = findAcct(id); if (!oa) return;
@@ -2409,6 +2609,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     spendRows: function (m) { return spendRows(scn(), m); },
     dateStatus: dateStatus, paceStatus: paceStatus, projectFund: projectFund,
     payMode: function () { return payMode(scn()); },
+    weights: function () { return weights(scn()); },
+    splitPlan: function () { return splitPlan(scn(), calc(scn())); },
     transfers: function (id) { var s = id ? findScn(id) : scn(); return s ? transfers(s, calc(s)) : null; },
     tourState: function () { var st = tourSteps[tourI]; return { i: tourI, n: tourSteps.length, sel: st ? st.sel : null }; }
   };

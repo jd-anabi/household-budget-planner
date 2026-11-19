@@ -1107,6 +1107,147 @@ section('income', async () => {
   await b.ctx.close();
 });
 
+// Two people whose pay lands in their own checking accounts, with the yearly-costs fund on.
+// Joint checking gets N = 1000; Joint savings gets N = 500 savings + 100 (Alex's yearly) + 50 (shared yearly) = 650.
+// `edit` changes it before it is stored.
+function sepPlan(edit) {
+  const p = {
+    v: DATA_VERSION, touched: true, modifiedAt: 1, lastSync: null, active: 'sep', cats: [], checkins: [], fund: { acct: 'js', saved: 0 },
+    people: [{ id: 'pa', name: 'Alex' }, { id: 'ps', name: 'Sam' }],
+    accounts: {
+      j: { name: 'Joint checking', note: '', kind: 'spend', owner: '' }, js: { name: 'Joint savings', note: '', kind: 'save', owner: '' },
+      a1: { name: 'Checking', note: '', kind: 'spend', owner: 'pa' }, s1: { name: 'Checking', note: '', kind: 'spend', owner: 'ps' },
+    },
+    acctOrder: ['j', 'js', 'a1', 's1'],
+    scenarios: [{
+      id: 'sep', name: 'Separate', sub: '', depositTo: 'j', split: { mode: 'income', pct: {} },
+      incomes: [{ id: 'ia', name: 'Alex pay', amt: 3000, who: 'pa', to: 'a1' }, { id: 'is', name: 'Sam pay', amt: 1000, who: 'ps', to: 's1' }],
+      lines: [
+        { id: 'l1', g: 'need', name: 'Rent', amt: 1000, f: 'mo', acct: 'j', cat: '', due: 0 },
+        { id: 'l2', g: 'save', name: 'Savings', amt: 500, f: 'mo', acct: 'js' },
+        { id: 'l3', g: 'want', name: 'Alex fun', amt: 100, f: 'mo', acct: 'a1', cat: '', due: 0 },
+        { id: 'l4', g: 'want', name: 'Sam fun', amt: 50, f: 'mo', acct: 's1', cat: '', due: 0 },
+        { id: 'l5', g: 'need', name: 'Car insurance', amt: 1200, f: 'yr', acct: 'a1', cat: '', due: 0 },
+        { id: 'l6', g: 'want', name: 'Gifts', amt: 600, f: 'yr', acct: 'j', cat: '', due: 12 },
+      ],
+    }],
+  };
+  if (edit) edit(p);
+  return { [PLAN_KEY]: JSON.stringify(p) };
+}
+const near = (x, y) => Math.abs(x - y) < 0.01;
+const splitOf = (page) => page.evaluate(() => ({ sp: window.__hbp.splitPlan(), w: window.__hbp.weights() }));
+// What one person's first income moves to account a (0 if nothing).
+function mv(sp, pid, a) {
+  const p = sp && sp.people.find((x) => x.id === pid), m = p && p.incomes[0].moves.find((x) => x.a === a);
+  return m ? m.amt : 0;
+}
+const noNaN = async (page) => !/NaN|Infinity/.test(await page.locator('#root').innerText());
+
+section('separate', async () => {
+  const { ctx, page } = await openPage({ storage: sepPlan() });
+  let { sp, w } = await splitOf(page);
+  const pA = sp && sp.people.find((p) => p.id === 'pa'), pS = sp && sp.people.find((p) => p.id === 'ps');
+  const A = pA && pA.incomes[0], S = pS && pS.incomes[0];
+  check('by take-home: weights', near(w.pa, 0.75) && near(w.ps, 0.25), JSON.stringify(w));
+  check('by take-home: Alex moves 75% of shared plus all of his own yearly cost', near(mv(sp, 'pa', 'j'), 750) && near(mv(sp, 'pa', 'js'), 512.5), JSON.stringify(A));
+  check('by take-home: Sam moves 25% of shared', near(mv(sp, 'ps', 'j'), 250) && near(mv(sp, 'ps', 'js'), 137.5), JSON.stringify(S));
+  check('by take-home: what each keeps', near(A.keep, 1737.5) && near(A.keepPlanned, 100) && near(S.keep, 612.5) && near(S.keepPlanned, 50), JSON.stringify([A, S]));
+  check('leftovers add up to what is left to assign', near(pA.L + pS.L, 2200), `${pA.L} + ${pS.L}`);
+  check('the split control shows when pay lands in two accounts', await page.locator('#split').isVisible());
+  check('no percentage inputs unless percentages are set', (await page.locator('[data-scope="split"][data-field="pct"]').count()) === 0);
+  let pay = await cardText(page, 'transfers');
+  check('each person gets their own transfers', pay.includes('Alex’s pay') && pay.includes('Sam’s pay'), pay);
+  check('the headings say how much lands where', pay.includes('Alex’s pay · $3,000 into Checking · Alex') && pay.includes('Sam’s pay · $1,000 into Checking · Sam'), pay);
+  check('the steps name the shares they are made of', pay.includes('75% of shared savings $500') && pay.includes('Alex’s yearly costs $100'), pay);
+
+  await page.selectOption('#split-mode', 'equal');
+  ({ sp, w } = await splitOf(page));
+  check('the mode menu keeps focus', (await page.evaluate(() => document.activeElement.id)) === 'split-mode');
+  check('equally', near(mv(sp, 'pa', 'j'), 500) && near(mv(sp, 'pa', 'js'), 375) && near(mv(sp, 'ps', 'j'), 500) && near(mv(sp, 'ps', 'js'), 275), JSON.stringify(sp));
+
+  await page.selectOption('#split-mode', 'custom');
+  await page.fill('#sp-pa', '70');
+  await page.fill('#sp-ps', '30');
+  ({ sp, w } = await splitOf(page));
+  check('set percentages 70/30', near(mv(sp, 'pa', 'j'), 700) && near(mv(sp, 'pa', 'js'), 485) && near(mv(sp, 'ps', 'j'), 300) && near(mv(sp, 'ps', 'js'), 165), JSON.stringify(sp));
+  check('percentages are stored', isDeepStrictEqual((await page.evaluate(() => window.__hbp.state().scenarios[0].split)), { mode: 'custom', pct: { pa: 70, ps: 30 } }));
+  await page.click('#sp-pa');
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('60');
+  const focus = await page.evaluate(() => ({ id: document.activeElement.id, value: document.activeElement.value }));
+  check('a percentage keeps focus and every keystroke', focus.id === 'sp-pa' && focus.value === '60', JSON.stringify(focus));
+  ({ sp, w } = await splitOf(page));
+  const inc = await cardText(page, 'income');
+  check('percentages adding up to 90 are scaled, with a note', near(w.pa, 2 / 3) && inc.includes('adds up to 90%') && inc.includes('Shares are scaled to add up to 100%'), inc);
+
+  // Review Focus 2
+  await page.fill('#sp-pa', '');
+  await page.fill('#sp-ps', '');
+  ({ sp, w } = await splitOf(page));
+  check('blank percentages fall back to equal shares', near(w.pa, 0.5) && near(w.ps, 0.5) && near(mv(sp, 'pa', 'j'), 500) && await noNaN(page), JSON.stringify(w));
+  await page.fill('#sp-pa', '0');
+  await page.fill('#sp-ps', '0');
+  ({ sp, w } = await splitOf(page));
+  check('percentages that are all zero fall back to equal shares', near(w.pa, 0.5) && near(w.ps, 0.5) && await noNaN(page), JSON.stringify(w));
+
+  await page.selectOption('#split-mode', 'equal');
+  await page.fill('#ia-is', '200');
+  pay = await cardText(page, 'transfers');
+  check('a share bigger than the pay is flagged', pay.includes('Sam’s share is $625 more than Sam’s pay. Lower some amounts or change the split.'), pay);
+  check('only that person is flagged', !pay.includes('Alex’s share is'), pay);
+
+  await page.fill('#ia-is', '1000');
+  await page.selectOption('#it-is', 'a1');
+  check('pay into one account again is pooled: no split control, today’s plan',
+    !(await page.locator('#split').isVisible()) && (await page.evaluate(() => window.__hbp.splitPlan())) === null &&
+    (await stepText(page, 'Joint savings')).includes('$650') && (await stepText(page, 'Checking · Sam')).includes('$50'), await cardText(page, 'transfers'));
+  await ctx.close();
+
+  // Sam has no pay; Alex has a second income landing in Joint checking, so pay still lands in two accounts.
+  const b = await openPage({ storage: sepPlan((p) => {
+    p.scenarios[0].incomes[1].amt = 0;
+    p.scenarios[0].incomes.push({ id: 'ig', name: 'Side gig', amt: 500, who: 'pa', to: 'j' });
+  }) });
+  sp = (await splitOf(b.page)).sp;
+  pay = await cardText(b.page, 'transfers');
+  check('a person with no pay who owns an account with items is flagged', sp && isDeepStrictEqual(sp.unfunded, [{ a: 's1', amt: 50 }]) &&
+    pay.includes('Nobody’s pay covers Checking · Sam ($50): Sam has no take-home in this scenario. Move those items to a shared account, or add Sam’s pay.'), JSON.stringify(sp && sp.unfunded) + ' | ' + pay);
+  check('only people with pay get a block', sp && sp.people.map((p) => p.id).join() === 'pa' && !pay.includes('Sam’s pay ·'), pay);
+  const alex = sp && sp.people[0];
+  const js = (x) => x.people.find((p) => p.id === 'pa').incomes.reduce((t, i) => t + ((i.moves.find((m) => m.a === 'js') || {}).amt || 0), 0);
+  check('a person with two incomes splits their transfers by amount', sp && near(js(sp), 650) && near(alex.incomes[0].moves.find((m) => m.a === 'js').amt, 650 * 6 / 7) &&
+    near(alex.incomes[1].moves.find((m) => m.a === 'js').amt, 650 / 7), JSON.stringify(alex));
+  check('each of their incomes gets its own heading', pay.includes('Alex pay · $3,000 into Checking · Alex') && pay.includes('Side gig · $500 into Joint checking'), pay);
+  // Set percentages give Sam a share of shared costs that nobody's pay covers.
+  await b.page.selectOption('#split-mode', 'custom');
+  await b.page.fill('#sp-pa', '70');
+  await b.page.fill('#sp-ps', '30');
+  pay = await cardText(b.page, 'transfers');
+  check('a share given to someone with no pay is flagged', pay.includes('Sam’s share is $465 more than Sam’s pay'), pay);
+  await b.ctx.close();
+
+  // Review Focus 5: removing the only other earner of a separate scenario.
+  const c = await openPage({ storage: sepPlan() });
+  await c.page.click('[data-act="del-person"][data-id="ps"]');
+  await c.page.click('[data-act="del-person"][data-id="ps"]');
+  const s = await c.page.evaluate(() => window.__hbp.state());
+  check('removing the only other earner keeps the pay and shows no NaN',
+    s.people.length === 1 && s.scenarios[0].incomes.reduce((t, x) => t + x.amt, 0) === 4000 && s.scenarios[0].incomes.every((x) => x.who === 'pa') &&
+    s.accounts.s1.owner === '' && await noNaN(c.page), JSON.stringify(s.scenarios[0].incomes));
+  await c.ctx.close();
+
+  // The split control and both person blocks fit a phone.
+  for (const scheme of ['light', 'dark']) {
+    const ph = await openPage({ viewport: { width: 390, height: 844 }, colorScheme: scheme, storage: sepPlan((p) => { p.scenarios[0].split = { mode: 'custom', pct: { pa: 70, ps: 20 } }; }) });
+    const shown = (await ph.page.locator('#sp-pa').isVisible()) && (await cardText(ph.page, 'transfers')).includes('Sam’s pay');
+    const wide = await ph.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    check(`390px ${scheme}: no horizontal scroll with the split control and both person blocks`, shown && wide <= 0, `${wide}px too wide, shown: ${shown}`);
+    if (SHOTS) await ph.page.screenshot({ path: path.join(SHOTS, scheme === 'light' ? 'phone-separate.png' : 'phone-separate-dark.png'), fullPage: true });
+    await ph.ctx.close();
+  }
+});
+
 section('two-windows', async () => {
   const fx = JSON.parse(fs.readFileSync(FIXTURE_V1, 'utf8'));
 

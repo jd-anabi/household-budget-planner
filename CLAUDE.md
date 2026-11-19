@@ -102,8 +102,23 @@ per-transaction tracking.
   Honeydue limits then leave yearly lines out. A check-in plans a dated yearly line in full in its due
   month and at 0 in other months (spread lines at 1/12).
   A check-in's fund row is pre-filled as max(0, start + c × months − bills due in those months).
-- Transfer plan: paychecks land in `depositTo`; every other account receives the sum of lines
-  assigned to it (plus the fund share for the fund account); the rest stays in the landing account.
+- Transfer plan (`payMode`, `transfers`, `weights`, `splitPlan`). An income is active from $0.50 a month and lands
+  in `incTo()` (its `to`, else the first spending account). Each item has a bearer, `acct` (whose cost it is), and a
+  destination, `destOf()` (the fund account for a yearly item while the fund is on, else `acct`). N_a = `calc().by[a]`
+  sums items by destination. Group totals, Honeydue limits, goals, the fund and check-ins don't depend on the mode.
+  - Pooled (all active incomes land in one account d, or none is active): move N_a to every other account with
+    N_a > 0.5, in `acctOrder`; the rest stays in d. One diagram and one steps list, as in v2.
+  - Separate (two or more landing accounts): the Income card shows "Split shared costs" (`#split`, hidden while
+    pooled) and the payday card has one block per person with pay, a steps list per income. Weights w_p sum to 1
+    when anyone has pay (else all 0): by take-home I_p / ΣI; equally 1 / (people with pay), 0 for the rest; set
+    percentages pct_p / Σ pct over current people (scaled, with a note; Σ = 0 means equally). A person's share of
+    an item goes by its bearer: σ_p = 1 for their own account, w_p for a shared one (or one whose owner is gone),
+    0 for someone else's. O_{p,a} = Σ σ_p·m over items with destination a, so a yearly bill from Alex's own account
+    is Alex's alone, though its share goes to the fund. Income i of person p moves T_{i,a} = (I_i / I_p)·O_{p,a} to
+    each account a other than its landing account d (shown if > 0.5); of the rest, (I_i / I_p)·O_{p,d} is planned.
+    L_p = I_p − Σ_a O_{p,a}. Warnings: L_p < −0.5 ("<Name>’s share is $X more than <Name>’s pay"; for someone with
+    no pay, their share of shared items), and an account owned by someone with no pay whose items total > 0.5
+    ("Nobody’s pay covers <account> ($X)…"): flagged, not quietly paid from shared money.
 - Tour: `household-budget-planner:tour-seen` in localStorage, per device, not exported.
 
 ## How the UI code works
