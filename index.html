@@ -20,7 +20,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Public+Sans:wght@400;500;600;700&display=swap">
 <style>
 /* Layout idea: a ledger-style planning tool. Summary of where the month's pay goes on top,
-   editable budget lines on the left, the payday transfer plan and goals on the right. */
+   editable budget items on the left, the payday transfer plan and goals on the right. */
 :root {
   --bg: #f3f5f9;
   --surface: #ffffff;
@@ -246,7 +246,22 @@ input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-i
 
 .add { align-self: flex-start; }
 
-.inc-row { display: grid; grid-template-columns: minmax(140px, 1fr) 140px 30px; gap: 8px; align-items: center; }
+.inc-row { display: grid; grid-template-columns: minmax(140px, 1fr) 110px 120px minmax(120px, 1fr) 30px; gap: 8px; align-items: center; }
+.inc-to { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+.inc-to .in { min-width: 0; flex: 1; }
+/* How shared costs split, shown in the Income card while pay lands in more than one account. */
+.split { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); padding-top: 14px; }
+.split[hidden] { display: none; }
+.split-mode { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 13px; font-weight: 500; color: var(--ink-2); }
+.split-mode .in { width: auto; max-width: 100%; }
+.split-pct { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; }
+.sp { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-width: 0; font-size: 14px; }
+.sp-n { min-width: 0; overflow-wrap: anywhere; }
+.pct-in { position: relative; display: flex; align-items: center; flex: none; }
+.pct-in .in { width: 78px; padding-right: 24px; text-align: right; font-variant-numeric: tabular-nums; }
+.pct-in .unit { position: absolute; right: 9px; color: var(--ink-3); font-size: 14px; pointer-events: none; }
+.sp-sum { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.sp-note { display: block; font-size: 12px; color: var(--ink-3); }
 
 .flow svg { width: 100%; height: auto; display: block; }
 .flow text { font-family: var(--font-body); font-size: 12px; fill: var(--ink); }
@@ -254,8 +269,16 @@ input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-i
 .steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; counter-reset: s; }
 .steps li { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: baseline; font-size: 14px; }
 .steps li::before { counter-increment: s; content: counter(s); font-size: 12px; font-weight: 700; color: var(--ink-2); background: var(--surface-2); border-radius: 50%; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; }
-.steps li b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.steps li > b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The account's label (it carries the owner's name) wraps, even inside a long name, so the amount stays in the card. */
+.steps li > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .steps li .why { grid-column: 2 / 4; font-size: 12px; color: var(--ink-3); margin-top: -4px; }
+/* Separate pay: one block per person, with a sub-heading per income when they have several. */
+.pp { display: flex; flex-direction: column; gap: 8px; }
+.pp + .pp { border-top: 1px solid var(--line); padding-top: 14px; }
+.pp h3, .pp h4 { overflow-wrap: anywhere; }
+.pp h4 { margin: 4px 0 0; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.pp h4 .faint { display: block; font-size: 12px; font-weight: 500; }
 .note { font-size: 13px; color: var(--ink-2); }
 .alert { font-size: 13px; padding: 8px 10px; border-radius: 8px; background: var(--bad-bg); color: var(--bad); font-weight: 600; }
 
@@ -304,7 +327,16 @@ textarea.copybox { width: 100%; min-height: 120px; font: 13px/1.4 ui-monospace, 
 .cmp td.neg { color: var(--bad); font-weight: 600; }
 .cmp td.pos { color: var(--warn); font-weight: 600; }
 
-.acct-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* People: a name, what that person has here, and a × (armed, it says what will happen). */
+.person-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
+.person-row .p-m { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.person-row .p-d.danger { white-space: normal; text-align: left; max-width: 28ch; }
+.acct-group { display: flex; flex-direction: column; gap: 6px; }
+.acct-group h3 { font-size: 13px; font-weight: 700; color: var(--ink-2); overflow-wrap: anywhere; }
+.acct-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 64px 132px minmax(80px, auto); gap: 8px; align-items: center; }
+.acct-row .a-k { font-size: 13px; color: var(--ink-2); }
+.acct-row .a-d { justify-self: end; }
+.acct-row span.a-d { font-size: 12px; white-space: nowrap; }
 
 .ci-start { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
 .ci-start .field { min-width: 160px; }
@@ -338,7 +370,11 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   .wrap { padding: 18px 16px 40px; }
   h1 { font-size: 25px; }
   .rows-head { display: none; }
-  .row { grid-template-columns: minmax(0, 1fr) 104px 30px; grid-template-areas: "n a d" "f c m"; }
+  .inc-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 30px; grid-template-areas: "n n d" "w a a" "t t t"; }
+  .inc-row > input.in { grid-area: n; } .inc-row > .inc-who { grid-area: w; } .inc-row > .amt { grid-area: a; }
+  .inc-row > .inc-to { grid-area: t; } .inc-row > .icon { grid-area: d; }
+  /* The account menu takes the wider share of the second line: closed, it has to show whose account it is ("Checking · Alex"). */
+  .row { grid-template-columns: 92px minmax(0, 1fr) 104px 30px; grid-template-areas: "n n a d" "f c c m"; }
   .row > .c-n { grid-area: n; } .row > .c-a { grid-area: a; } .row > .c-d { grid-area: d; }
   .row > .c-f { grid-area: f; } .row > .c-c { grid-area: c; } .row > .c-m { grid-area: m; }
   .row { padding-bottom: 10px; border-bottom: 1px solid var(--line); }
@@ -355,6 +391,13 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   .ci-row > .ci-p { grid-area: p; text-align: left; font-size: 12px; color: var(--ink-2); } .ci-row > .ci-d { grid-area: d; }
   .ci-row > .ci-p::before { content: 'Planned '; }
   .ci-total { border-bottom: none; }
+  .person-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "n d" "m m"; }
+  .person-row > .p-n { grid-area: n; } .person-row > .p-m { grid-area: m; } .person-row > .p-d { grid-area: d; }
+  .person-row.armed { grid-template-areas: "n n" "m m" "d d"; }
+  .person-row .p-d.danger { max-width: none; }
+  .acct-row { grid-template-columns: 80px minmax(0, 1fr) minmax(0, 1fr) minmax(80px, auto); grid-template-areas: "n n o o" "k w w d"; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .acct-row > .a-n { grid-area: n; } .acct-row > .a-o { grid-area: o; } .acct-row > .a-k { grid-area: k; }
+  .acct-row > .a-w { grid-area: w; } .acct-row > .a-d { grid-area: d; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
@@ -406,8 +449,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   var PLAN_KEY = 'household-budget-planner:plan:v1';
   var NAME_KEY = 'household-budget-planner:name';
   var APP_ID = 'household-budget-planner';
-  var DATA_V = 2;
-  var BACKUP_KEY = 'household-budget-planner:plan:v1-backup';
+  var DATA_V = 3;
+  // Where a stored plan of version k is copied before it is upgraded (the v1 key also takes a value that can't be read).
+  function backupKey(k) { return 'household-budget-planner:plan:v' + k + '-backup'; }
   var NEWER_MSG = 'This plan was saved by a newer version of the app. Reload while online to update.';
   var FREQ = { mo: { label: 'monthly', k: 1 }, wk: { label: 'weekly', k: 52 / 12 }, yr: { label: 'yearly', k: 1 / 12 } };
   var GROUPS = [
@@ -415,10 +459,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     { key: 'save', name: 'Savings', desc: 'Moved out first, on payday, so it actually gets saved.' },
     { key: 'want', name: 'Variable', desc: 'Fun, subscriptions, personal spending, and a buffer for surprises.' }
   ];
-  var ACCT_ORDER = ['jchk', 'mchk', 'jsav', 'msav', 'inv'];
-  var SPEND_ACCTS = ['jchk', 'mchk'];
-  var SAVE_ACCTS = ['jsav', 'msav', 'inv'];
-  var ACCT_COLOR = { jchk: 'var(--need)', mchk: 'var(--ink-3)', jsav: 'var(--save)', msav: 'var(--save-2)', inv: 'var(--save-3)' };
+  // Colours of the accounts in the payday diagram, by position within their kind (so the v2 accounts keep theirs).
+  var ACCT_COLORS = { spend: ['var(--need)', 'var(--ink-3)'], save: ['var(--save)', 'var(--save-2)', 'var(--save-3)'] };
+  var KIND_LABEL = { spend: 'Spending', save: 'Savings' };
 
   var seq = 0;
   function nid() { seq += 1; return 'i' + Date.now().toString(36) + seq.toString(36); }
@@ -440,109 +483,77 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function monthLong(key) { var i = monthIndex(key); return MONTHS[((i % 12) + 12) % 12]; }
   function monthLabel(key) { return monthLong(key).slice(0, 3) + ' ' + Math.floor(monthIndex(key) / 12); }
 
-  /* Example plan shown on first open. Real numbers live only on your devices and in plan files you export. */
+  /* Example plan shown on first open: generic people and numbers. Real numbers live only on your devices
+     and in plan files you export. */
   function defaults() {
     var cats = ['Bills & utilities', 'Groceries', 'Transportation', 'Eating out & fun', 'Personal', 'Gifts']
       .map(function (name) { return { id: nid(), name: name }; });
     var CAT_OF = {
-      'Rent (not paying yet)': 0, 'Rent': 0, 'Utilities (electric, gas, water)': 0, 'Internet': 0, 'Phone': 0, 'Insurance (car, renters)': 0,
+      'Rent or mortgage': 0, 'Utilities (electric, gas, water)': 0, 'Internet': 0, 'Phone': 0, 'Insurance (car, renters)': 0,
       'Groceries & household supplies': 1,
       'Gas, transit & parking': 2, 'Car registration & maintenance': 2,
       'Dining out & takeout': 3, 'Entertainment & outings': 3, 'Subscriptions (streaming, apps)': 3,
       'Health costs (copays, prescriptions)': 4, 'Personal care': 4, 'Shopping & clothing': 4,
+      'Personal spending: Alex': 4, 'Personal spending: Sam': 4,
       'Gifts & holidays': 5
     };
     var DUE = { 'Car registration & maintenance': 3, 'Gifts & holidays': 12 };
-    var p = example();
-    p.cats = cats;
-    p.scenarios.forEach(function (s) {
-      s.lines.forEach(function (l) {
-        if (l.g !== 'need' && l.g !== 'want') return;
-        l.cat = CAT_OF[l.name] !== undefined ? cats[CAT_OF[l.name]].id : '';
-        l.due = DUE[l.name] || 0;
-        if (l.goal) l.goal.by = '';
-      });
-      s.lines.forEach(function (l) {
-        if (l.goal && /^Move-in fund/.test(l.name)) l.goal.by = monthKey(monthIndex(thisMonth()) + 12);
-      });
+    var alex = nid(), sam = nid(), jchk = nid(), jsav = nid(), inv = nid(), achk = nid(), schk = nid();
+    var items = [
+      L('need', 'Rent or mortgage', 1800, 'mo', jchk),
+      L('need', 'Utilities (electric, gas, water)', 180, 'mo', jchk),
+      L('need', 'Internet', 60, 'mo', jchk),
+      L('need', 'Phone', 100, 'mo', jchk),
+      L('need', 'Groceries & household supplies', 700, 'mo', jchk),
+      L('need', 'Gas, transit & parking', 250, 'mo', jchk),
+      L('need', 'Insurance (car, renters)', 220, 'mo', jchk),
+      L('need', 'Health costs (copays, prescriptions)', 80, 'mo', jchk),
+      L('need', 'Car registration & maintenance', 900, 'yr', jchk),
+      L('save', 'Emergency fund', 600, 'mo', jsav, { mode: 'months', months: 6, amount: 0, saved: 0 }),
+      L('save', 'Vacation', 300, 'mo', jsav, { mode: 'amount', months: 6, amount: 3600, saved: 0, by: monthKey(monthIndex(thisMonth()) + 12) }),
+      L('save', 'Retirement / investing', 500, 'mo', inv),
+      L('want', 'Dining out & takeout', 300, 'mo', jchk),
+      L('want', 'Entertainment & outings', 150, 'mo', jchk),
+      L('want', 'Subscriptions (streaming, apps)', 50, 'mo', jchk),
+      L('want', 'Shopping & clothing', 150, 'mo', jchk),
+      L('want', 'Personal care', 80, 'mo', jchk),
+      L('want', 'Gifts & holidays', 1200, 'yr', jchk),
+      L('want', 'Personal spending: Alex', 150, 'mo', achk),
+      L('want', 'Personal spending: Sam', 150, 'mo', schk),
+      L('want', 'Buffer for surprises', 100, 'mo', jchk)
+    ];
+    items.forEach(function (l) {
+      if (l.g !== 'need' && l.g !== 'want') return;
+      l.cat = CAT_OF[l.name] !== undefined ? cats[CAT_OF[l.name]].id : '';
+      l.due = DUE[l.name] || 0;
     });
-    return p;
-  }
-
-  function example() {
+    var accounts = {};
+    accounts[jchk] = { name: 'Joint checking', note: 'Shared bills', kind: 'spend', owner: '' };
+    accounts[jsav] = { name: 'Joint savings', note: 'Emergency fund and vacation', kind: 'save', owner: '' };
+    accounts[inv] = { name: 'Retirement / investing', note: 'IRA or brokerage', kind: 'save', owner: '' };
+    accounts[achk] = { name: 'Checking', note: 'Own spending', kind: 'spend', owner: alex };
+    accounts[schk] = { name: 'Checking', note: 'Own spending', kind: 'spend', owner: sam };
     return {
-      v: 2,
-      cats: [],
-      checkins: [],
-      fund: { acct: 'jsav', saved: 0 },
+      v: 3,
       touched: false,
       modifiedAt: 0,
       lastSync: null,
-      active: 'now',
-      accounts: {
-        jchk: { name: 'Joint checking', note: 'Shared bills' },
-        mchk: { name: 'My checking', note: 'My own spending' },
-        jsav: { name: 'Joint savings', note: 'Emergency fund' },
-        msav: { name: 'My savings', note: 'Fun & vacation' },
-        inv: { name: 'Retirement / investing', note: 'IRA or brokerage' }
-      },
-      scenarios: [
-        {
-          id: 'now', name: 'Now', sub: 'One income, no rent yet', depositTo: 'mchk',
-          incomes: [{ id: nid(), name: 'My take-home pay', amt: 4000 }, { id: nid(), name: 'Partner take-home pay', amt: 0 }],
-          lines: [
-            L('need', 'Rent (not paying yet)', 0, 'mo', 'jchk'),
-            L('need', 'Utilities (electric, gas, water)', 120, 'mo', 'jchk'),
-            L('need', 'Internet', 60, 'mo', 'jchk'),
-            L('need', 'Phone', 80, 'mo', 'jchk'),
-            L('need', 'Groceries & household supplies', 600, 'mo', 'jchk'),
-            L('need', 'Gas, transit & parking', 150, 'mo', 'jchk'),
-            L('need', 'Insurance (car, renters)', 100, 'mo', 'jchk'),
-            L('need', 'Health costs (copays, prescriptions)', 50, 'mo', 'jchk'),
-            L('need', 'Car registration & maintenance', 600, 'yr', 'jchk'),
-            L('save', 'Emergency fund', 700, 'mo', 'jsav', { mode: 'months', months: 6, amount: 0, saved: 0 }),
-            L('save', 'Fun & vacation', 300, 'mo', 'msav', { mode: 'amount', months: 6, amount: 3000, saved: 0 }),
-            L('save', 'Move-in fund (deposit, first month, movers)', 400, 'mo', 'jsav', { mode: 'amount', months: 6, amount: 6000, saved: 0 }),
-            L('save', 'Extra retirement / investing', 0, 'mo', 'inv'),
-            L('want', 'Dining out & takeout', 250, 'mo', 'jchk'),
-            L('want', 'Entertainment & outings', 120, 'mo', 'jchk'),
-            L('want', 'Subscriptions (streaming, apps)', 50, 'mo', 'jchk'),
-            L('want', 'Shopping & clothing', 120, 'mo', 'jchk'),
-            L('want', 'Personal care', 60, 'mo', 'jchk'),
-            L('want', 'Gifts & holidays', 800, 'yr', 'jchk'),
-            L('want', 'Personal spending: me', 150, 'mo', 'mchk'),
-            L('want', 'Personal spending: partner', 150, 'mo', 'jchk'),
-            L('want', 'Buffer for surprises', 100, 'mo', 'jchk')
-          ]
-        },
-        {
-          id: 'later', name: 'Both working + rent', sub: 'Both paychecks into joint', depositTo: 'jchk',
-          incomes: [{ id: nid(), name: 'My take-home pay', amt: 4000 }, { id: nid(), name: 'Partner take-home pay', amt: 0 }],
-          lines: [
-            L('need', 'Rent', 2500, 'mo', 'jchk'),
-            L('need', 'Utilities (electric, gas, water)', 150, 'mo', 'jchk'),
-            L('need', 'Internet', 60, 'mo', 'jchk'),
-            L('need', 'Phone', 80, 'mo', 'jchk'),
-            L('need', 'Groceries & household supplies', 650, 'mo', 'jchk'),
-            L('need', 'Gas, transit & parking', 200, 'mo', 'jchk'),
-            L('need', 'Insurance (car, renters)', 130, 'mo', 'jchk'),
-            L('need', 'Health costs (copays, prescriptions)', 50, 'mo', 'jchk'),
-            L('need', 'Car registration & maintenance', 600, 'yr', 'jchk'),
-            L('save', 'Emergency fund', 700, 'mo', 'jsav', { mode: 'months', months: 6, amount: 0, saved: 0 }),
-            L('save', 'Fun & vacation', 400, 'mo', 'msav', { mode: 'amount', months: 6, amount: 3000, saved: 0 }),
-            L('save', 'Extra retirement / investing', 0, 'mo', 'inv'),
-            L('want', 'Dining out & takeout', 300, 'mo', 'jchk'),
-            L('want', 'Entertainment & outings', 150, 'mo', 'jchk'),
-            L('want', 'Subscriptions (streaming, apps)', 50, 'mo', 'jchk'),
-            L('want', 'Shopping & clothing', 150, 'mo', 'jchk'),
-            L('want', 'Personal care', 60, 'mo', 'jchk'),
-            L('want', 'Gifts & holidays', 800, 'yr', 'jchk'),
-            L('want', 'Personal spending: me', 200, 'mo', 'mchk'),
-            L('want', 'Personal spending: partner', 200, 'mo', 'jchk'),
-            L('want', 'Buffer for surprises', 150, 'mo', 'jchk')
-          ]
-        }
-      ]
+      active: 'example',
+      people: [{ id: alex, name: 'Alex' }, { id: sam, name: 'Sam' }],
+      accounts: accounts,
+      acctOrder: [jchk, jsav, inv, achk, schk],
+      cats: cats,
+      fund: { acct: jsav, saved: 0 },
+      checkins: [],
+      scenarios: [{
+        id: 'example', name: 'Example', sub: 'Example numbers: replace them with yours', depositTo: jchk,
+        split: { mode: 'income', pct: {} },
+        incomes: [
+          { id: nid(), name: 'Take-home pay', amt: 3600, who: alex, to: jchk },
+          { id: nid(), name: 'Take-home pay', amt: 3000, who: sam, to: jchk }
+        ],
+        lines: items
+      }]
     };
   }
 
@@ -559,6 +570,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   var ID_RE = /^[A-Za-z0-9_:-]{1,80}$/, MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
   function okId(x) { return typeof x === 'string' && ID_RE.test(x); }
   function okObj(x) { return !!x && typeof x === 'object'; }
+  function okMap(x) { return okObj(x) && !Array.isArray(x); } // an object keyed by id: fields added to an array would be lost on save
+  // What v2 and v3 plans share.
   function validDeep(p) {
     return p.scenarios.every(function (s) {
       return okId(s.id) &&
@@ -574,37 +587,91 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
           ci.spend.every(function (r) { return okObj(r) && okId(r.key); }) &&
           ci.goals.every(function (g) { return okObj(g) && okId(g.line); }) &&
           (ci.fund === null || ci.fund === undefined || okObj(ci.fund));
-      }) &&
-      (p.fund.acct === '' || SAVE_ACCTS.indexOf(p.fund.acct) >= 0);
+      });
   }
+  // The five fixed accounts of a v2 plan. In v3 they are ordinary accounts with these ids.
+  var V2_ACCTS = ['jchk', 'mchk', 'jsav', 'msav', 'inv'];
+  // A plan as the v2 app accepted it. migrate() checks it before the v2 → v3 step.
+  function validV2(p) {
+    return validShape(p) && p.v === 2 && Array.isArray(p.cats) && Array.isArray(p.checkins) &&
+      okObj(p.fund) && validDeep(p) && (p.fund.acct === '' || ['jsav', 'msav', 'inv'].indexOf(p.fund.acct) >= 0);
+  }
+  var SPLIT_MODES = ['income', 'equal', 'custom'];
+  // People and account ids are also keys of plain objects (accounts, split percentages, sums by person or account),
+  // so a name every object inherits ("__proto__", "constructor", "toString"…) would read or overwrite what it inherits.
+  function okKey(x) { return okId(x) && !(x in Object.prototype); }
+  function distinct(list) { return list.every(function (x, i) { return list.indexOf(x) === i; }); }
+  // A current (v3) plan: v2's checks, plus people, accounts with a kind, their display order, and each income's
+  // person and landing account. Ids that reach HTML must be safe; owners and other references may dangle (shown gracefully).
   function validPlan(p) {
-    return validShape(p) && p.v === DATA_V && Array.isArray(p.cats) && Array.isArray(p.checkins) &&
-      okObj(p.fund) && validDeep(p);
+    if (!validShape(p) || p.v !== DATA_V || !Array.isArray(p.cats) || !Array.isArray(p.checkins) ||
+      !okObj(p.fund) || !okMap(p.accounts) || !validDeep(p)) return false;
+    function acct(a) { return okKey(a) && Object.prototype.hasOwnProperty.call(p.accounts, a) && okObj(p.accounts[a]) ? p.accounts[a] : null; }
+    var kinds = {};
+    return Array.isArray(p.people) && p.people.length > 0 && p.people.every(function (x) { return okObj(x) && okKey(x.id); }) &&
+      distinct(p.people.map(function (x) { return x.id; })) &&
+      Array.isArray(p.acctOrder) && distinct(p.acctOrder) && p.acctOrder.every(function (a) {
+        var x = acct(a);
+        if (!x || (x.kind !== 'spend' && x.kind !== 'save')) return false;
+        kinds[x.kind] = true;
+        return true;
+      }) && !!kinds.spend && !!kinds.save &&
+      (p.fund.acct === '' || (!!acct(p.fund.acct) && acct(p.fund.acct).kind === 'save')) &&
+      p.scenarios.every(function (s) {
+        return okObj(s.split) && SPLIT_MODES.indexOf(s.split.mode) >= 0 && okMap(s.split.pct) && Object.keys(s.split.pct).every(okKey) &&
+          s.incomes.every(function (x) { return okId(x.who) && okId(x.to); });
+      });
   }
 
-  // Upgrades a v1 plan to v2 (v2 passes through). Works on a copy, only adds missing fields,
-  // keeps everything else (unknown fields included). Returns null if the result isn't a valid plan.
+  // Upgrades an older plan one version at a time (v1 → v2 → v3); a current plan passes through.
+  // Works on a copy, only adds fields, keeps everything else (unknown fields included).
+  // Returns null if the plan isn't valid for its version or the result isn't a valid current plan.
   function migrate(p) {
     if (!p || typeof p !== 'object') return null;
     var q = JSON.parse(JSON.stringify(p));
     if (q.v === 1) {
       if (!validShape(q)) return null;
-      if (!Array.isArray(q.cats)) q.cats = [];
-      if (!Array.isArray(q.checkins)) q.checkins = [];
-      if (!q.fund || typeof q.fund !== 'object') q.fund = { acct: '', saved: 0 };
-      q.scenarios.forEach(function (s) {
-        s.lines.forEach(function (l) {
-          if (!l || typeof l !== 'object') return;
-          if (l.g === 'need' || l.g === 'want') {
-            if (l.cat === undefined) l.cat = '';
-            if (l.due === undefined) l.due = 0;
-          }
-          if (l.goal && typeof l.goal === 'object' && l.goal.by === undefined) l.goal.by = '';
-        });
-      });
-      q.v = 2;
+      v1to2(q);
+    }
+    if (q.v === 2) {
+      if (!validV2(q) || !okMap(q.accounts)) return null;
+      v2to3(q);
     }
     return validPlan(q) ? q : null;
+  }
+  function v1to2(q) {
+    if (!Array.isArray(q.cats)) q.cats = [];
+    if (!Array.isArray(q.checkins)) q.checkins = [];
+    if (!q.fund || typeof q.fund !== 'object') q.fund = { acct: '', saved: 0 };
+    q.scenarios.forEach(function (s) {
+      s.lines.forEach(function (l) {
+        if (!l || typeof l !== 'object') return;
+        if (l.g === 'need' || l.g === 'want') {
+          if (l.cat === undefined) l.cat = '';
+          if (l.due === undefined) l.due = 0;
+        }
+        if (l.goal && typeof l.goal === 'object' && l.goal.by === undefined) l.goal.by = '';
+      });
+    });
+    q.v = 2;
+  }
+  // One placeholder person, who owns "My checking" and "My savings" and earns every income. Every income lands
+  // where the scenario deposited pay, so each scenario stays pooled and its payday plan is the same as in v2.
+  function v2to3(q) {
+    var pid = nid();
+    q.people = [{ id: pid, name: 'Person 1' }];
+    V2_ACCTS.forEach(function (a) {
+      if (!okMap(q.accounts[a])) q.accounts[a] = { name: a, note: '' }; // v2 showed a missing account by its id
+      q.accounts[a].kind = a === 'jchk' || a === 'mchk' ? 'spend' : 'save';
+      q.accounts[a].owner = a === 'mchk' || a === 'msav' ? pid : '';
+    });
+    q.acctOrder = V2_ACCTS.slice(); // other keys of accounts, if any, stay as they are and aren't shown (as in v2)
+    q.scenarios.forEach(function (s) {
+      var to = s.depositTo === 'jchk' || s.depositTo === 'mchk' ? s.depositTo : 'jchk';
+      s.incomes.forEach(function (x) { x.who = pid; x.to = to; });
+      s.split = { mode: 'income', pct: {} };
+    });
+    q.v = 3;
   }
 
   // A plan saved by a newer version of the app must never be overwritten by this one:
@@ -612,19 +679,22 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function tooNew(p) { return !!(p && typeof p === 'object' && typeof p.v === 'number' && p.v > DATA_V); }
 
   // Reads the stored plan's raw JSON, on load and when another window saves the plan.
-  // Returns { plan, newer, upgraded }: plan is a valid current plan (a v1 plan upgraded) or null.
-  // A copy of a plan that had to be upgraded, in case the upgrade itself ever has a bug, or of
-  // something stored that can't be read, goes to BACKUP_KEY (once) before anything can save over it.
+  // Returns { plan, newer, upgraded, from }: plan is a valid current plan (an older one upgraded) or null,
+  // and from is the version an upgraded plan was stored as (else 0).
+  // Before anything can save over it, a copy of a stored older plan (in case the upgrade itself ever has a bug)
+  // goes to backupKey(its version), whether or not its upgrade worked, and of anything else stored that can't
+  // be read to backupKey(1); each only if that key is empty.
   function readStored(raw) {
     var p = null, plan = null;
     try {
       p = JSON.parse(raw || 'null');
-      if (tooNew(p)) return { plan: null, newer: true, upgraded: false };
-      plan = p && p.v === 1 ? migrate(p) : (validPlan(p) ? p : null);
+      if (tooNew(p)) return { plan: null, newer: true, upgraded: false, from: 0 };
+      plan = p && typeof p.v === 'number' && p.v < DATA_V ? migrate(p) : (validPlan(p) ? p : null);
     } catch (e) { plan = null; }
-    var upgraded = !!plan && p.v === 1;
-    if (raw && (upgraded || !plan) && !lsGet(BACKUP_KEY)) lsSet(BACKUP_KEY, raw);
-    return { plan: plan, newer: false, upgraded: upgraded };
+    var from = plan && p.v < DATA_V ? p.v : 0;
+    var key = backupKey(p && (p.v === 1 || p.v === 2) ? p.v : 1);
+    if (raw && (from || !plan) && !lsGet(key)) lsSet(key, raw);
+    return { plan: plan, newer: false, upgraded: !!from, from: from };
   }
 
   var seenRaw = lsGet(PLAN_KEY); // the stored plan as this window last read or wrote it
@@ -637,16 +707,19 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   var storageOk = true;
   function newerBanner() { return { kind: 'error', html: '<b>' + esc(NEWER_MSG) + '</b>' }; }
   var TOUR_KEY = 'household-budget-planner:tour-seen';
-  var banner = blocked ? newerBanner() : (lsGet(TOUR_KEY) ? null : { kind: 'tour' });          // {kind:'import'|'error'|'info', ...}
+  // One slot: the newer-version error first, then the people notice after an upgrade, then the tour offer.
+  var banner = blocked ? newerBanner() : (migratedOnLoad ? { kind: 'people', lead: '' } : (lsGet(TOUR_KEY) ? null : { kind: 'tour' }));          // {kind:'import'|'error'|'info'|'people'|'tour', ...}
   var pendingDelete = null;
   var pendingDeleteCat = null;
+  var pendingDeleteAcct = null; // account armed for removal
+  var pendingDeletePerson = null; // person armed for removal
   var pendingCiDel = null;   // month of a check-in armed for deletion
   var ciView = null;        // month the check-in card shows, or null for the default
   var ciShown = null;       // month the card is currently showing (set while rendering)
   var pendingReset = false;
   var copyFallback = false;
   // A month opened from the history and armed deletes belong to the plan on screen; a new plan starts without them.
-  function resetView() { ciView = null; pendingCiDel = null; pendingDeleteCat = null; pendingDelete = null; }
+  function resetView() { ciView = null; pendingCiDel = null; pendingDeleteCat = null; pendingDeleteAcct = null; pendingDeletePerson = null; pendingDelete = null; }
 
   if (migratedOnLoad) persist();
 
@@ -672,9 +745,90 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function findCat(id) { for (var i = 0; i < state.cats.length; i++) if (state.cats[i].id === id) return state.cats[i]; return null; }
   // '' when the line has no category or points at one that no longer exists.
   function catName(id) { var ct = id ? findCat(id) : null; return ct ? (String(ct.name || '').trim() || 'Untitled category') : ''; }
+
+  /* ---------- people and accounts ---------- */
+  function findPerson(id) { for (var i = 0; i < state.people.length; i++) if (state.people[i].id === id) return state.people[i]; return null; }
+  // An empty name shows as "Person N", N being the person's place in the list.
+  function personName(id) {
+    for (var i = 0; i < state.people.length; i++) {
+      if (state.people[i].id === id) return String(state.people[i].name || '').trim() || 'Person ' + (i + 1);
+    }
+    return '';
+  }
+  // Items, check-ins and hand-edited files may name an account that no longer exists: null then.
+  function findAcct(a) { return Object.prototype.hasOwnProperty.call(state.accounts, a) && okObj(state.accounts[a]) ? state.accounts[a] : null; }
+  // '' for a Shared account, and for one whose owner no longer exists (it is treated as Shared).
+  function ownerOf(a) { var x = findAcct(a); return x && x.owner && findPerson(x.owner) ? x.owner : ''; }
+  // The accounts the app shows, in display order.
+  function acctIds() { return state.acctOrder.filter(function (a) { return !!findAcct(a); }); }
+  function acctsOfKind(kind) { return acctIds().filter(function (a) { return findAcct(a).kind === kind; }); }
+  function isKind(a, kind) { return acctsOfKind(kind).indexOf(a) >= 0; }
+  // An account with no name shows as "Untitled account" (its name input stays empty).
+  function acctName(a) { var x = findAcct(a); return x ? (String(x.name == null ? '' : x.name).trim() || 'Untitled account') : 'Deleted account'; }
+  // Whether `name` has `word` as a whole word, in any case: "Alex checking" has "Alex", "Shared savings" doesn't have "Ed".
+  // A word character is a letter or digit in any script (U+00C0 and up, leaving out the punctuation and symbols at U+2000–U+2BFF).
+  var WORD_CH = '0-9A-Za-z_\\u00C0-\\u1FFF\\u2C00-\\uFFFF';
+  function hasWord(name, word) {
+    var re = new RegExp('(^|[^' + WORD_CH + '])' + word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=$|[^' + WORD_CH + '])', 'i');
+    return re.test(name);
+  }
+  // The name, plus whose account it is unless it's Shared or the name already says so ("Checking · Alex").
+  function acctLabel(a) {
+    var name = acctName(a), o = ownerOf(a), who = o ? personName(o) : '';
+    return who && !hasWord(name, who) ? name + ' · ' + who : name;
+  }
+  // An account's label in the editor column. refresh() renews its text, so renaming an account or a person shows
+  // there without re-drawing the input being typed in. (The side column is re-drawn by refresh() anyway.)
+  function acctSpan(a, cls) { return '<span' + (cls ? ' class="' + cls + '"' : '') + ' data-acct-label="' + esc(a) + '">' + esc(acctLabel(a)) + '</span>'; }
+  // Options for an account menu: accounts of one kind, grouped by owner (Shared first, then people in order).
+  // Each option shows the full label, so a closed menu says whose "Checking" it is.
+  // A `sel` that isn't one of them (a removed account, or one of the other kind) is kept as a first, selected option,
+  // so the menu shows what the plan holds; pass null when nothing is to be selected.
+  function acctOptions(kind, sel) {
+    var ids = acctsOfKind(kind);
+    function opts(list) {
+      return list.map(function (a) { return '<option value="' + esc(a) + '"' + (a === sel ? ' selected' : '') + '>' + esc(acctLabel(a)) + '</option>'; }).join('');
+    }
+    var shared = ids.filter(function (a) { return !ownerOf(a); });
+    var h = shared.length ? '<optgroup label="Shared">' + opts(shared) + '</optgroup>' : '';
+    state.people.forEach(function (p) {
+      var own = ids.filter(function (a) { return ownerOf(a) === p.id; });
+      if (own.length) h += '<optgroup label="' + esc(personName(p.id)) + '" data-person="' + esc(p.id) + '">' + opts(own) + '</optgroup>';
+    });
+    if (sel !== null && ids.indexOf(sel) < 0) h = '<option value="' + esc(sel) + '" selected>' + esc(acctLabel(sel)) + '</option>' + h;
+    return h;
+  }
+  // Renaming an account or a person changes labels: renew every account menu's options in place, so the input being
+  // typed in is not re-drawn. (The account menus are items' "Paid from" / "Goes to", incomes' "lands in" and the fund's.)
+  function relabelAcctOptions() {
+    acctIds().forEach(function (a) {
+      root.querySelectorAll('select[data-field="acct"] option[value="' + a + '"], select[data-field="to"] option[value="' + a + '"]')
+        .forEach(function (o) { o.textContent = acctLabel(a); });
+    });
+  }
+  function acctColor(a) {
+    var x = findAcct(a), list = x && ACCT_COLORS[x.kind], i = list ? acctsOfKind(x.kind).indexOf(a) : -1;
+    return i < 0 ? 'var(--ink-3)' : list[i % list.length];
+  }
+  // What uses an account: items whose money it holds and incomes landing in it (in every scenario), and the yearly-costs fund.
+  function acctUses(a) {
+    var k = state.fund.acct === a ? 1 : 0;
+    state.scenarios.forEach(function (s) {
+      s.lines.forEach(function (l) { if (l.acct === a) k += 1; });
+      s.incomes.forEach(function (x) { if (x.to === a) k += 1; });
+    });
+    return k;
+  }
+  // Only an unused account can be removed, and never the last spending or the last savings account.
+  function canDeleteAcct(a) {
+    var x = findAcct(a), ids = x ? acctsOfKind(x.kind) : [];
+    return ids.indexOf(a) >= 0 && ids.length > 1 && acctUses(a) === 0;
+  }
   function isSpend(l) { return l.g === 'need' || l.g === 'want'; }
   function isYearly(l) { return isSpend(l) && l.f === 'yr'; }
   function fundOn() { return !!(state.fund && state.fund.acct); }
+  // Where an item's payday money goes: with the yearly-costs fund on, a yearly item's monthly share goes to the fund account.
+  function destOf(l) { return fundOn() && isYearly(l) ? state.fund.acct : l.acct; }
   function dueOf(l) { var d = parseInt(l.due, 10); return d >= 1 && d <= 12 ? d : 0; }
   function monthNum(key) { return ((monthIndex(key) % 12) + 12) % 12 + 1; }
 
@@ -689,7 +843,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       var m = monthly(l); if (g[l.g] === undefined) return;
       g[l.g] += m;
       // With the yearly-costs fund on, a yearly line's monthly share is moved to the fund each payday.
-      var a = toFund && isYearly(l) ? state.fund.acct : l.acct;
+      var a = destOf(l);
       if (toFund && isYearly(l)) fund += m;
       by[a] = (by[a] || 0) + m;
     });
@@ -713,10 +867,10 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     info.date = monthLabel(monthKey(monthIndex(e ? e.ci.month : prevMonth(new Date())) + info.months));
     return info;
   }
-  var HD_NOTE = 'Enter these as monthly limits on your Honeydue categories. Group lines into categories in the Honeydue categories card. Savings stays out of Honeydue; the transfers above handle it.';
+  var HD_NOTE = 'Enter these as monthly limits on your Honeydue categories. Group items into categories in the Honeydue categories card. Savings stays out of Honeydue; the transfers above handle it.';
   var YEARLY_NOTE = 'includes yearly costs at 1/12 a month; expect a spike in the month they’re paid';
 
-  // Honeydue limits: one item per category (sum of its lines) and per line not in a category.
+  // Honeydue limits: one entry per category (sum of its items) and per item not in a category.
   function hdItems(s) {
     var items = [], byCat = {};
     state.cats.forEach(function (ct) {
@@ -989,14 +1143,120 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     return diffText(t.actual - t.planned, ' plan') + (t.entered < t.rows ? ' (' + t.entered + ' of ' + t.rows + ')' : '');
   }
 
+  // Where an income's pay lands: its account if that is a spending account, else the first spending account.
+  function incTo(x) { return isKind(x.to, 'spend') ? x.to : acctsOfKind('spend')[0]; }
+  // An income is active from $0.50 a month: a $0 placeholder neither makes pay separate nor gets a share.
+  function isActive(x) { return n(x.amt) >= 0.5; }
+  // Whose pay an income is; one naming a person who no longer exists counts as the first person's, so no pay goes missing.
+  // Everything that shows or sums whose pay it is (the whose menu, People, the payday plan) goes through this.
+  function incWho(x) { return findPerson(x.who) ? x.who : state.people[0].id; }
+  // Pooled when all active incomes land in one account (or none is active); `land` is where the payday plan starts.
+  function payMode(s) {
+    var lands = [];
+    s.incomes.forEach(function (x) { if (isActive(x)) { var a = incTo(x); if (lands.indexOf(a) < 0) lands.push(a); } });
+    var land = lands.length ? lands[0] : s.incomes.length ? incTo(s.incomes[0]) : isKind(s.depositTo, 'spend') ? s.depositTo : acctsOfKind('spend')[0];
+    return { pooled: lands.length <= 1, land: land, lands: lands };
+  }
+  function newIncome(s) {
+    var who = state.people[0].id;
+    for (var i = 0; i < state.people.length; i++) {
+      var pid = state.people[i].id;
+      if (!s.incomes.some(function (x) { return incWho(x) === pid; })) { who = pid; break; }
+    }
+    var shared = acctsOfKind('spend').filter(function (a) { return !ownerOf(a); })[0];
+    var to = s.incomes.length ? incTo(s.incomes[0]) : isKind(s.depositTo, 'spend') ? s.depositTo : shared || acctsOfKind('spend')[0];
+    return { id: nid(), name: 'Take-home pay', amt: 0, who: who, to: to };
+  }
+
   function transfers(s, c) {
-    var land = s.depositTo, items = [], moved = 0;
-    ACCT_ORDER.forEach(function (a) {
+    var land = payMode(s).land, items = [], moved = 0;
+    acctIds().forEach(function (a) {
       if (a === land) return;
       var amt = c.by[a] || 0;
       if (amt > 0.5) { items.push({ a: a, amt: amt }); moved += amt; }
     });
     return { land: land, items: items, moved: moved, keep: c.I - moved, keepPlanned: c.by[land] || 0 };
+  }
+
+  /* ---------- separate pay: who covers what ---------- */
+  // Each current person's take-home from this scenario's active incomes.
+  function payBy(s) {
+    var I = {};
+    state.people.forEach(function (p) { I[p.id] = 0; });
+    s.incomes.forEach(function (x) { if (isActive(x)) I[incWho(x)] += n(x.amt); });
+    return I;
+  }
+  // A person's "Set percentages" entry; a missing one counts as 0.
+  function splitPct(s, id) {
+    var pct = s.split && okMap(s.split.pct) ? s.split.pct : {};
+    return Object.prototype.hasOwnProperty.call(pct, id) ? n(pct[id]) : 0;
+  }
+  // Each current person's share of shared costs. They add up to 1 when anyone has pay, else all are 0.
+  // "Equally" splits among the people with pay; percentages are scaled to add up to 100%, and if they add up to 0, split equally.
+  function weights(s) {
+    var I = payBy(s), w = {}, tot = 0, paid = [], sum = 0, mode = s.split ? s.split.mode : 'income';
+    state.people.forEach(function (p) { w[p.id] = 0; tot += I[p.id]; if (I[p.id] > 0) paid.push(p.id); });
+    if (!paid.length) return w;
+    if (mode === 'custom') state.people.forEach(function (p) { sum += splitPct(s, p.id); });
+    state.people.forEach(function (p) {
+      if (mode === 'custom' && sum > 0) w[p.id] = splitPct(s, p.id) / sum;
+      else if (mode === 'equal' || mode === 'custom') w[p.id] = paid.indexOf(p.id) >= 0 ? 1 / paid.length : 0;
+      else w[p.id] = I[p.id] / tot;
+    });
+    return w;
+  }
+  // Person p's share of an item, by the account it is paid from or saved into (its bearer, not where its money goes):
+  // all of it from their own account, their weight from a shared one (or one whose owner no longer exists), none from someone else's.
+  function shareOf(w, pid, bearer) { var o = ownerOf(bearer); return o ? (o === pid ? 1 : 0) : w[pid]; }
+
+  // The payday plan when pay lands in more than one account; null while pooled. Every person with pay covers their share
+  // of each item, sent where calc() sends it (destOf: a yearly item's share goes to the fund account, still its bearer's cost).
+  // Someone with several incomes splits what they cover in proportion to amount. Each income moves its part to every account
+  // but the one it lands in; `keepPlanned` is its part of what is spent from there. `short` lists everyone whose share is more
+  // than their pay (for someone with no pay, only their share of shared items: their own accounts are in `unfunded`).
+  function splitPlan(s, c) {
+    if (payMode(s).pooled) return null;
+    var w = weights(s), I = payBy(s), O = {}, sharedOwed = {}, ids = acctIds();
+    state.people.forEach(function (p) { O[p.id] = {}; sharedOwed[p.id] = 0; });
+    s.lines.forEach(function (l) {
+      if (c.g[l.g] === undefined) return; // as calc() skips it
+      var m = monthly(l), r = destOf(l), shared = !ownerOf(l.acct);
+      state.people.forEach(function (p) {
+        var k = shareOf(w, p.id, l.acct) * m;
+        if (!k) return;
+        O[p.id][r] = (O[p.id][r] || 0) + k;
+        if (shared) sharedOwed[p.id] += k;
+      });
+    });
+    var people = [], short = [], unfunded = [];
+    state.people.forEach(function (p) {
+      var Ip = I[p.id], Op = O[p.id], owed = 0;
+      Object.keys(Op).forEach(function (a) { owed += Op[a]; });
+      if (Ip <= 0) {
+        if (sharedOwed[p.id] > 0.5) short.push({ id: p.id, amt: sharedOwed[p.id] });
+        return;
+      }
+      var incomes = [];
+      s.incomes.forEach(function (x) {
+        if (!isActive(x) || incWho(x) !== p.id) return;
+        var Ii = n(x.amt), part = Ii / Ip, d = incTo(x), moves = [], moved = 0;
+        ids.forEach(function (a) {
+          var t = part * (Op[a] || 0);
+          if (a !== d && t > 0.5) { moves.push({ a: a, amt: t }); moved += t; }
+        });
+        incomes.push({ id: x.id, land: d, I: Ii, moves: moves, keep: Ii - moved, keepPlanned: part * (Op[d] || 0) });
+      });
+      people.push({ id: p.id, I: Ip, L: Ip - owed, incomes: incomes });
+      if (owed - Ip > 0.5) short.push({ id: p.id, amt: owed - Ip });
+    });
+    // An account owned by someone with no pay: nobody covers its items (counting yearly ones whose share goes to the fund).
+    ids.forEach(function (a) {
+      var o = ownerOf(a), t = 0;
+      if (!o || I[o] > 0) return;
+      s.lines.forEach(function (l) { if (l.acct === a && c.g[l.g] !== undefined) t += monthly(l); });
+      if (t > 0.5) unfunded.push({ a: a, amt: t });
+    });
+    return { w: w, people: people, short: short, unfunded: unfunded };
   }
 
   /* ---------- formatting ---------- */
@@ -1008,7 +1268,6 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function pct(v) { return isFinite(v) ? Math.round(v * 100) + '%' : '0%'; }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (ch) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]; }); }
   function when(t) { return new Date(t).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
-  function acctName(a) { return (state.accounts[a] && state.accounts[a].name) || a; }
   function status(c) {
     if (c.I <= 0 && c.P <= 0) return { tone: '', text: 'Add your income' };
     if (Math.abs(c.left) < 0.5) return { tone: 'ok', text: 'Every dollar assigned' };
@@ -1086,6 +1345,13 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
         '<button class="btn ghost" type="button" data-act="banner-close">Cancel</button></span></div>';
       return;
     }
+    if (banner.kind === 'people') {
+      var ask = 'New: add the people in your household. Accounts and pay now say whose they are.';
+      el.innerHTML = '<div class="banner"><span class="msg">' + (banner.lead ? '<b>' + banner.lead + '</b><small>' + ask + '</small>' : '<b>' + ask + '</b>') + '</span>' +
+        '<span class="actions"><button class="btn primary" type="button" data-act="goto-people">Go to People</button>' +
+        '<button class="btn ghost" type="button" data-act="banner-close">Dismiss</button></span></div>';
+      return;
+    }
     el.innerHTML = '<div class="banner' + (banner.kind === 'error' ? ' err' : '') + '"><span class="msg">' + banner.html + '</span>' +
       '<button class="btn ghost" type="button" data-act="banner-close">Dismiss</button></div>';
   }
@@ -1097,11 +1363,43 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       '<button class="btn ghost danger" type="button" data-act="reset">' + (pendingReset ? 'Click again to reset everything' : 'Reset to example plan') + '</button>';
   }
 
-  function optionList(list, sel) {
-    return list.map(function (a) { return '<option value="' + a + '"' + (a === sel ? ' selected' : '') + '>' + esc(acctName(a)) + '</option>'; }).join('');
-  }
   function freqOptions(sel) {
     return Object.keys(FREQ).map(function (k) { return '<option value="' + k + '"' + (k === sel ? ' selected' : '') + '>' + FREQ[k].label + '</option>'; }).join('');
+  }
+
+  // The people, `sel` selected: pass incWho(x), so an income naming someone who no longer exists shows as the first person's.
+  function whoOptions(sel) {
+    return state.people.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === sel ? ' selected' : '') + '>' + esc(personName(p.id)) + '</option>'; }).join('');
+  }
+
+  var SPLIT_LABELS = { income: 'In proportion to take-home', equal: 'Equally', custom: 'Set percentages' };
+  // How shared costs split while pay lands in more than one account. Always drawn; refresh() hides it while pay is pooled,
+  // since typing an amount can change that without a re-draw.
+  function splitHTML(s) {
+    var mode = s.split ? s.split.mode : 'income';
+    var h = '<div class="split" id="split"' + (payMode(s).pooled ? ' hidden' : '') + '>' +
+      '<label class="split-mode" for="split-mode">Split shared costs<select class="in" id="split-mode" data-scope="split" data-field="mode">' +
+      SPLIT_MODES.map(function (m) { return '<option value="' + m + '"' + (m === mode ? ' selected' : '') + '>' + SPLIT_LABELS[m] + '</option>'; }).join('') +
+      '</select></label>';
+    if (mode === 'custom') {
+      h += '<div class="split-pct">';
+      state.people.forEach(function (p) {
+        var pct = s.split.pct, has = okMap(pct) && Object.prototype.hasOwnProperty.call(pct, p.id);
+        h += '<label class="sp" for="sp-' + p.id + '"><span class="sr-only">Percent of shared costs for</span>' +
+          '<span class="sp-n" data-out="spn-' + p.id + '">' + esc(personName(p.id)) + '</span>' +
+          '<span class="pct-in"><input class="in" type="number" inputmode="decimal" min="0" step="1" id="sp-' + p.id + '" data-scope="split" data-id="' + p.id + '" data-field="pct" value="' + (has ? esc(pct[p.id]) : '') + '">' +
+          '<span class="unit" aria-hidden="true">%</span></span></label>';
+      });
+      h += '<span class="sp-sum" data-out="split-sum"></span></div>';
+    }
+    return h + '</div>';
+  }
+  function splitSumHTML(s) {
+    var sum = 0;
+    state.people.forEach(function (p) { sum += splitPct(s, p.id); });
+    var h = 'adds up to <b>' + sum.toLocaleString('en-US', { maximumFractionDigits: 2 }) + '%</b>';
+    if (sum <= 0) return h + '<span class="sp-note">With no percentages set, shared costs are split equally</span>';
+    return Math.abs(sum - 100) < 0.005 ? h : h + '<span class="sp-note">Shares are scaled to add up to 100%</span>';
   }
 
   function editorHTML(s) {
@@ -1110,17 +1408,18 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       '<div class="card-head"><h2>Income</h2><span class="meta" data-out="income-total"></span></div>' +
       '<div class="fields">' +
         '<label class="field" for="scn-name">Scenario name<input class="in" id="scn-name" data-scope="scn" data-field="name" value="' + esc(s.name) + '"></label>' +
-        '<label class="field" for="scn-dep">Paychecks are deposited into<select class="in" id="scn-dep" data-scope="scn" data-field="depositTo">' + optionList(SPEND_ACCTS, s.depositTo) + '</select></label>' +
       '</div><div class="rows">';
     s.incomes.forEach(function (x) {
       h += '<div class="inc-row">' +
         '<input class="in" id="in-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="name" value="' + esc(x.name) + '" aria-label="Income source name">' +
+        '<select class="in inc-who" id="iw-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="who" aria-label="Whose pay is ' + esc(x.name) + '">' + whoOptions(incWho(x)) + '</select>' +
         '<div class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="ia-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="amt" value="' + esc(x.amt) + '" aria-label="Monthly take-home for ' + esc(x.name) + '"></div>' +
+        '<label class="inc-to">lands in<select class="in" id="it-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="to" aria-label="Account ' + esc(x.name) + ' lands in">' + acctOptions('spend', x.to) + '</select></label>' +
         '<button class="icon" type="button" data-act="del-inc" data-id="' + x.id + '" aria-label="Remove ' + esc(x.name) + '" title="Remove">×</button></div>';
     });
     h += '</div><div class="actions">' +
       '<button class="btn ghost add" type="button" data-act="add-inc">+ Add income</button>' +
-      '</div></section>';
+      '</div>' + splitHTML(s) + '</section>';
 
     GROUPS.forEach(function (G) {
       var lines = s.lines.filter(function (l) { return l.g === G.key; });
@@ -1134,7 +1433,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
           '<input class="in c-n" id="n-' + l.id + '" data-scope="line" data-id="' + l.id + '" data-field="name" value="' + esc(l.name) + '" aria-label="Item name" title="' + esc(l.name) + '">' +
           '<div class="amt c-a"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="a-' + l.id + '" data-scope="line" data-id="' + l.id + '" data-field="amt" value="' + esc(l.amt) + '" aria-label="Amount for ' + esc(l.name) + '"></div>' +
           '<select class="in c-f" id="f-' + l.id + '" data-scope="line" data-id="' + l.id + '" data-field="f" aria-label="How often for ' + esc(l.name) + '">' + freqOptions(l.f) + '</select>' +
-          '<select class="in c-c" id="c-' + l.id + '" data-scope="line" data-id="' + l.id + '" data-field="acct" aria-label="Account for ' + esc(l.name) + '">' + optionList(G.key === 'save' ? SAVE_ACCTS : SPEND_ACCTS, l.acct) + '</select>' +
+          '<select class="in c-c" id="c-' + l.id + '" data-scope="line" data-id="' + l.id + '" data-field="acct" aria-label="Account for ' + esc(l.name) + '">' + acctOptions(G.key === 'save' ? 'save' : 'spend', l.acct) + '</select>' +
           '<span class="mo c-m" data-out="m-' + l.id + '"></span>' +
           '<button class="icon c-d" type="button" data-act="del-line" data-id="' + l.id + '" aria-label="Remove ' + esc(l.name) + '" title="Remove">×</button>' +
           '<span class="rbar" aria-hidden="true"><i data-out="b-' + l.id + '"></i></span>' +
@@ -1146,15 +1445,82 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
     h += categoriesHTML(s);
     h += yearlyHTML(s);
+    h += peopleHTML(s);
 
-    h += '<section class="card" aria-label="Account names" data-tour="accounts"><div class="card-head"><h2>Accounts</h2><span class="meta">Rename to match your banks</span></div><div class="rows">';
-    ACCT_ORDER.forEach(function (a) {
-      var x = state.accounts[a] || { name: a, note: '' };
-      h += '<div class="acct-row"><input class="in" id="an-' + a + '" data-scope="acct" data-id="' + a + '" data-field="name" value="' + esc(x.name) + '" aria-label="Account name">' +
-        '<input class="in" id="ao-' + a + '" data-scope="acct" data-id="' + a + '" data-field="note" value="' + esc(x.note) + '" aria-label="What ' + esc(x.name) + ' is for"></div>';
+    return h + accountsHTML();
+  }
+
+  // Their accounts become Shared and their pay goes to the first person left (amounts and landing accounts unchanged).
+  function removePerson(id) {
+    if (state.people.length < 2 || !findPerson(id)) return;
+    var first = state.people.filter(function (p) { return p.id !== id; })[0].id;
+    state.people = state.people.filter(function (p) { return p.id !== id; });
+    Object.keys(state.accounts).forEach(function (a) { var x = state.accounts[a]; if (okObj(x) && x.owner === id) x.owner = ''; });
+    state.scenarios.forEach(function (sx) { sx.incomes.forEach(function (i) { if (i.who === id) i.who = first; }); });
+  }
+  function ownedBy(id) { return acctIds().filter(function (a) { return ownerOf(a) === id; }).length; }
+  function peopleMeta(s, id) {
+    var k = ownedBy(id), pay = 0;
+    s.incomes.forEach(function (x) { if (incWho(x) === id) pay += n(x.amt); });
+    return k + ' account' + (k === 1 ? '' : 's') + ' · ' + money(pay) + ' take-home here';
+  }
+  function peopleHTML(s) {
+    var np = state.people.length;
+    if (pendingDeletePerson && (np < 2 || !findPerson(pendingDeletePerson))) pendingDeletePerson = null;
+    var h = '<section class="card" aria-label="People" data-tour="people">' +
+      '<div class="card-head"><div><h2>People</h2><p class="desc">Who’s in the household. Names show on accounts and pay.</p></div>' +
+      '<span class="meta">' + np + ' ' + (np === 1 ? 'person' : 'people') + '</span></div><div class="rows">';
+    state.people.forEach(function (p) {
+      var name = esc(personName(p.id)), armed = pendingDeletePerson === p.id, del = '';
+      if (np > 1) {
+        if (armed) {
+          var k = ownedBy(p.id), next = state.people.filter(function (x) { return x.id !== p.id; })[0];
+          var say = 'Click again: ' + (k ? name + '’s ' + k + ' account' + (k === 1 ? '' : 's') + (k === 1 ? ' becomes' : ' become') + ' shared, ' : '') +
+            name + '’s pay moves to ' + esc(personName(next.id));
+          del = '<button class="p-d btn ghost danger" id="dp-' + esc(p.id) + '" type="button" data-act="del-person" data-id="' + esc(p.id) + '" aria-label="' + say + '">' + say + '</button>';
+        } else {
+          del = '<button class="p-d icon" id="dp-' + esc(p.id) + '" type="button" data-act="del-person" data-id="' + esc(p.id) + '" aria-label="Remove ' + name + '" title="Remove ' + name + '">×</button>';
+        }
+      }
+      h += '<div class="person-row' + (armed ? ' armed' : '') + '"><input class="in p-n" id="pn-' + esc(p.id) + '" data-scope="person" data-id="' + esc(p.id) + '" data-field="name" value="' + esc(p.name) + '" placeholder="' + name + '" aria-label="Name of person">' +
+        '<span class="mo p-m" data-out="pm-' + esc(p.id) + '">' + esc(peopleMeta(s, p.id)) + '</span>' + del + '</div>';
     });
-    h += '</div></section>';
-    return h;
+    return h + '</div><button class="btn ghost add" type="button" data-act="add-person">+ Add person</button></section>';
+  }
+
+  // Grouped by owner: Shared first, then each person in People order. A group with no accounts isn't shown.
+  function accountsHTML() {
+    // An account armed for removal that something now uses (an item, an income or the fund moved onto it) is disarmed.
+    if (pendingDeleteAcct && !canDeleteAcct(pendingDeleteAcct)) pendingDeleteAcct = null;
+    var h = '<section class="card" aria-label="Accounts" data-tour="accounts"><div class="card-head"><h2>Accounts</h2><span class="meta">Rename to match your banks</span></div>';
+    [''].concat(state.people.map(function (p) { return p.id; })).forEach(function (o) {
+      var ids = acctIds().filter(function (a) { return ownerOf(a) === o; });
+      if (!ids.length) return;
+      h += '<div class="acct-group"><h3' + (o ? ' data-person="' + esc(o) + '"' : '') + '>' + esc(o ? personName(o) : 'Shared') + '</h3><div class="rows">' + ids.map(acctRowHTML).join('') + '</div></div>';
+    });
+    return h + '<div class="actions">' +
+      '<button class="btn ghost add" type="button" data-act="add-acct" data-kind="spend">+ Add spending account</button>' +
+      '<button class="btn ghost add" type="button" data-act="add-acct" data-kind="save">+ Add savings account</button>' +
+      '</div></section>';
+  }
+  function acctRowHTML(a) {
+    var x = findAcct(a), o = ownerOf(a), id = esc(a), name = esc(acctName(a)), uses = acctUses(a), del;
+    if (canDeleteAcct(a)) {
+      var armed = pendingDeleteAcct === a, tip = (armed ? 'Click again to remove ' : 'Remove ') + name;
+      del = '<button class="a-d ' + (armed ? 'btn ghost danger' : 'icon') + '" id="da-' + id + '" type="button" data-act="del-acct" data-id="' + id + '" aria-label="' + tip + '" title="' + tip + '">' + (armed ? 'Remove?' : '×') + '</button>';
+    } else {
+      // No × while items, incomes or the fund use it (they'd be left pointing at nothing), or while it's the last of its kind.
+      del = '<span class="a-d faint"' + (uses ? ' title="Used by ' + uses + ' (items, incomes and the yearly-costs fund, in every scenario). Move them to another account to remove it."' : '') + '>' +
+        (uses ? 'used by ' + uses : '') + '</span>';
+    }
+    return '<div class="acct-row">' +
+      '<input class="in a-n" id="an-' + id + '" data-scope="acct" data-id="' + id + '" data-field="name" value="' + esc(x.name) + '" aria-label="Account name">' +
+      '<input class="in a-o" id="ao-' + id + '" data-scope="acct" data-id="' + id + '" data-field="note" value="' + esc(x.note) + '" aria-label="What ' + name + ' is for">' +
+      '<span class="a-k">' + KIND_LABEL[x.kind] + '</span>' +
+      '<select class="in a-w" id="aw-' + id + '" data-scope="acct" data-id="' + id + '" data-field="owner" aria-label="Whose account ' + name + ' is">' +
+        '<option value=""' + (o ? '' : ' selected') + '>Shared</option>' +
+        state.people.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === o ? ' selected' : '') + '>' + esc(personName(p.id)) + '</option>'; }).join('') +
+      '</select>' + del + '</div>';
   }
 
   function checkinHTML() {
@@ -1205,13 +1571,13 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (ci.goals.length || ci.fund) {
       h += '<h3 class="ci-sub">Savings balances at the end of ' + esc(monthLong(ci.month)) + '</h3><div class="ci-goals">';
       ci.goals.forEach(function (g) {
-        h += '<div class="ci-goal"><span class="ci-n">' + esc(g.name) + '<span class="tag">' + esc(acctName(g.acct)) + '</span></span>' +
+        h += '<div class="ci-goal"><span class="ci-n">' + esc(g.name) + acctSpan(g.acct, 'tag') + '</span>' +
           '<span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="cig-' + esc(g.line) + '" data-scope="cig" data-field="balance" data-id="' + esc(g.line) + '" value="' + esc(round2(n(g.balance))) + '" aria-label="' + esc(g.name) + ' balance at the end of ' + esc(monthLong(ci.month)) + '"></span>' +
           '<span class="ci-meta"><span>planned +' + money(n(g.planned) * n(g.months)) + '</span><span class="ci-assumed" data-out="cias-' + esc(g.line) + '"></span><span data-out="cigs-' + esc(g.line) + '"></span></span></div>';
       });
       if (ci.fund) {
         var f = ci.fund;
-        h += '<div class="ci-goal"><span class="ci-n">Yearly costs fund<span class="tag">' + esc(acctName(f.acct)) + '</span></span>' +
+        h += '<div class="ci-goal"><span class="ci-n">Yearly costs fund' + acctSpan(f.acct, 'tag') + '</span>' +
           '<span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="cif" data-scope="cif" data-field="balance" value="' + esc(round2(n(f.balance))) + '" aria-label="Yearly costs fund balance at the end of ' + esc(monthLong(ci.month)) + '"></span>' +
           '<span class="ci-meta"><span>planned +' + money(n(f.planned) * n(f.months)) + ' − ' + money(n(f.due)) + ' due</span><span class="ci-assumed" data-out="cias-fund"></span><span data-out="cigs-fund"></span></span></div>';
       }
@@ -1228,7 +1594,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       '<p class="desc">Bills that come once a year. Setting aside a twelfth each month means the money is there when they’re due.</p></div>' +
       '<div style="text-align:right"><div class="total" data-out="fund-c"></div><div class="meta">set aside a month</div></div></div>' +
       '<div class="fields"><label class="field" for="fund-acct">Set aside each month in<select class="in" id="fund-acct" data-scope="fund" data-field="acct">' +
-      '<option value=""' + (fundOn() ? '' : ' selected') + '>Don’t set money aside</option>' + optionList(SAVE_ACCTS, state.fund.acct) + '</select></label>' +
+      '<option value=""' + (fundOn() ? '' : ' selected') + '>Don’t set money aside</option>' + acctOptions('save', fundOn() ? state.fund.acct : null) + '</select></label>' +
       (fundOn() ? '<label class="field" for="fund-bal">' + (fundBalance().month ? 'Balance at end of ' + esc(monthLabel(fundBalance().month)) : 'In the fund now') + '<span class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="fund-bal" data-scope="fund" data-field="balance" value="' + esc(round2(fundBalance().balance)) + '"></span></label>' : '') +
       '</div>';
     if (ys.length) {
@@ -1242,7 +1608,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       });
       h += '</div>';
     }
-    h += '<p class="note">' + (ys.length ? '' : 'No yearly items yet. ') + 'To add one, add a line in Necessities or Variable and set How often to yearly.</p>';
+    h += '<p class="note">' + (ys.length ? '' : 'No yearly items yet. ') + 'To add one, add an item in Necessities or Variable and set How often to yearly.</p>';
     return h + '<div data-out="fund-cal"></div></section>';
   }
   function fundCalHTML(s) {
@@ -1253,7 +1619,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       h += '<table class="hd fund-tbl"><tr class="gh"><td>Next 12 months</td><td class="r">' + (fundOn() ? 'Fund after' : '') + '</td></tr>';
       p.months.forEach(function (m) {
         h += '<tr><td><b>' + esc(monthLabel(m.key)) + '</b> ' + m.bills.map(function (b) {
-          return esc(b.name) + ' ' + money(b.amt) + (fundOn() ? ' · move it to ' + esc(acctName(b.acct)) : '');
+          return esc(b.name) + ' ' + money(b.amt) + (fundOn() ? ' · move it to ' + acctSpan(b.acct) : '');
         }).join('; ') + '</td><td class="r' + (fundOn() && m.F < -0.5 ? ' neg' : '') + '">' + (fundOn() ? money(m.F) : '') + '</td></tr>';
       });
       h += '</table>';
@@ -1281,7 +1647,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     var n = state.cats.length;
     var h = '<section class="card" aria-label="Honeydue categories" data-tour="categories">' +
       '<div class="card-head"><div><h2>Honeydue categories</h2>' +
-      '<p class="desc">Group your lines into the categories you use in Honeydue. Change them any time; the Honeydue limits update as you go.</p></div>' +
+      '<p class="desc">Group your items into the categories you use in Honeydue. Change them any time; the Honeydue limits update as you go.</p></div>' +
       '<span class="meta">' + n + ' categor' + (n === 1 ? 'y' : 'ies') + '</span></div><div class="rows">';
     state.cats.forEach(function (ct) {
       var armed = pendingDeleteCat === ct.id;
@@ -1295,12 +1661,12 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (!n) h += '<p class="note">No categories yet. Add the ones you use in Honeydue.</p>';
     h += '</div><button class="btn ghost add" type="button" data-act="add-cat">+ Add category</button>';
     var lines = s.lines.filter(isSpend);
-    h += '<div class="cat-lines"><div class="rows-head" aria-hidden="true" style="display:grid;grid-template-columns:minmax(0,1fr) auto"><span>Line</span><span>Category</span></div>';
+    h += '<div class="cat-lines"><div class="rows-head" aria-hidden="true" style="display:grid;grid-template-columns:minmax(0,1fr) auto"><span>Item</span><span>Category</span></div>';
     lines.forEach(function (l) {
       h += '<div class="cat-line"><label for="lc-' + l.id + '" data-out="ln-' + l.id + '">' + lineLabel(l) + '</label>' +
         '<select class="in" id="lc-' + l.id + '" data-scope="line" data-id="' + l.id + '" data-field="cat">' + catOptions(l.cat) + '</select></div>';
     });
-    if (!lines.length) h += '<p class="note">Add necessities or variable lines to group them.</p>';
+    if (!lines.length) h += '<p class="note">Add necessities or variable items to group them.</p>';
     return h + '</div></section>';
   }
 
@@ -1348,10 +1714,14 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     renderSide(s, c);
     renderTabs();
     setOut('income-total', money(c.I) + ' a month');
+    var split = document.getElementById('split');
+    if (split) split.hidden = payMode(s).pooled;
+    setOut('split-sum', splitSumHTML(s));
     GROUPS.forEach(function (G) {
       setOut('gt-' + G.key, money(c.g[G.key]));
       setOut('gp-' + G.key, c.I > 0 ? pct(c.g[G.key] / c.I) + ' of income' : '');
     });
+    state.people.forEach(function (p) { setOut('pm-' + p.id, esc(peopleMeta(s, p.id))); setOut('spn-' + p.id, esc(personName(p.id))); });
     state.cats.forEach(function (ct) { setOut('ct-' + ct.id, money(catTotal(s, ct.id)) + ' / mo'); });
     refreshCheckin();
     setOut('fund-c', money(fundMonthly(s)));
@@ -1377,6 +1747,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
         if (gs && l.goal && document.activeElement !== gs && n(gs.value) !== round2(goalBalance(l))) gs.value = round2(goalBalance(l));
       }
     });
+    root.querySelectorAll('[data-acct-label]').forEach(function (el) { el.textContent = acctLabel(el.getAttribute('data-acct-label')); });
     renderSaveStatus();
   }
 
@@ -1413,7 +1784,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       byAcct[ci.fund.acct].sum += n(ci.fund.balance); byAcct[ci.fund.acct].k += 1;
     }
     setOut('ci-recon', Object.keys(byAcct).filter(function (a) { return byAcct[a].k > 1; }).map(function (a) {
-      return esc(acctName(a)) + ' holds ' + money(byAcct[a].sum) + ' across these. Check that this matches the account’s balance.';
+      return acctSpan(a) + ' holds ' + money(byAcct[a].sum) + ' across these. Check that this matches the account’s balance.';
     }).join(' '));
   }
 
@@ -1470,7 +1841,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       '<div class="sync-meta"><span><b>' + (blocked ? 'Not saved: a newer plan is stored on this device' : storageOk ? 'Saved on this device automatically' : 'Can’t save on this device') + '</b></span>' +
       '<span>' + last + '</span>' +
       (unsyncedEdits() ? '<span class="chip warn" style="align-self:flex-start">Edits not exported yet</span>' : '') + '</div>' +
-      '<label class="field" for="device-name">Your name (written into files you export)<input class="in" id="device-name" data-scope="device" data-field="name" value="' + esc(deviceName) + '" placeholder="e.g. J"></label>' +
+      '<label class="field" for="device-name">Your name (written into files you export)<input class="in" id="device-name" data-scope="device" data-field="name" value="' + esc(deviceName) + '" placeholder="e.g. Alex"></label>' +
       '<ol class="how"><li>Keep one plan file in a folder you both use (iCloud Drive, Google Drive, or send it by text).</li>' +
       '<li>After you change the plan, tap <b>Export plan file</b> and replace the old file.</li>' +
       '<li>On the other phone or laptop, tap <b>Import plan file</b> to pick up the changes.</li></ol>' +
@@ -1479,15 +1850,16 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   }
 
   function renderSide(s, c) {
-    var t = transfers(s, c);
+    // Pooled pay: one diagram and one list. Separate pay: a list per person (splitPlan is null while pooled).
+    var sp = splitPlan(s, c), t = sp ? null : transfers(s, c);
     var h = '<section class="card flow" aria-label="Payday transfer plan" data-tour="transfers"><div class="card-head"><h2>Payday transfer plan</h2><span class="meta">Set these up as recurring transfers</span></div>' +
-      flowSVG(t, c) + stepsHTML(s, c, t) + '</section>';
+      (sp ? personStepsHTML(s, sp) : flowSVG(t, c) + stepsHTML(s, c, t)) + '</section>';
 
     var goals = s.lines.filter(function (l) { return l.g === 'save' && goalInfo(l, c); });
     h += '<section class="card" aria-label="Savings goals" data-tour="goals"><div class="card-head"><h2>Savings goals</h2></div>';
     if (fundOn()) {
       var fst = fundStatus(s), nY = s.lines.filter(isYearly).length;
-      h += '<div class="goals" style="margin-bottom:14px"><div class="gl" data-goal="fund"><div class="gl-top"><span>Yearly costs fund<span class="tag">' + esc(acctName(state.fund.acct)) + '</span></span>' +
+      h += '<div class="goals" style="margin-bottom:14px"><div class="gl" data-goal="fund"><div class="gl-top"><span>Yearly costs fund<span class="tag">' + esc(acctLabel(state.fund.acct)) + '</span></span>' +
         '<span><b>' + money(fundBalance().balance) + '</b></span></div><div class="gl-st">' + statusChip(fst) + '</div>' +
         '<div class="gl-sub">' + money(c.fund) + ' a month for ' + nY + ' yearly item' + (nY === 1 ? '' : 's') + '.</div></div></div>';
     }
@@ -1502,7 +1874,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
           money(gi.s) + ' a month → about ' + gi.months + ' month' + (gi.months === 1 ? '' : 's') + ', around ' + gi.date + '.';
         if (l.goal.mode === 'months') sub += ' Target is ' + n(l.goal.months) + ' × ' + money(c.g.need) + ' of monthly necessities in this scenario.';
         var gst = goalStatus(l, s, c);
-        h += '<div class="gl" data-goal="' + esc(l.id) + '"><div class="gl-top"><span>' + esc(l.name) + '<span class="tag">' + esc(acctName(l.acct)) + '</span></span><span><b>' + money(gi.B) + '</b> <span class="faint">of ' + money(gi.G) + '</span></span></div>' +
+        h += '<div class="gl" data-goal="' + esc(l.id) + '"><div class="gl-top"><span>' + esc(l.name) + '<span class="tag">' + esc(acctLabel(l.acct)) + '</span></span><span><b>' + money(gi.B) + '</b> <span class="faint">of ' + money(gi.G) + '</span></span></div>' +
           '<div class="pbar"><i style="width:' + (gi.frac * 100).toFixed(1) + '%"></i></div>' +
           (gst ? '<div class="gl-st">' + statusChip(gst) + (gst.sub ? '<span class="gl-sub">' + esc(gst.sub) + '</span>' : '') + '</div>' : '') +
           '<div class="gl-sub">' + sub + '</div></div>';
@@ -1520,11 +1892,11 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       h += '<tr><td><span class="hd-n">' + esc(it.name) + '</span>' +
         (it.kind === 'cat'
           ? '<span class="hd-lines">' + esc(it.lines.map(function (l) { return l.name; }).join(', ')) + '</span>'
-          : '<span class="tag">' + esc(acctName(it.lines[0].acct)) + '</span>') +
+          : '<span class="tag">' + esc(acctLabel(it.lines[0].acct)) + '</span>') +
         (it.note ? '<span class="hd-note">' + esc(it.note) + '</span>' : '') +
         '</td><td class="r">' + money(it.amt) + ' / mo</td></tr>';
     });
-    if (!items.length) h += '<tr><td colspan="2" class="note">No spending lines yet.</td></tr>';
+    if (!items.length) h += '<tr><td colspan="2" class="note">No spending items yet.</td></tr>';
     var fs = fundSentence(s);
     h += '</table>';
     if (fs) h += '<p class="note hd-after">' + esc(fs) + '</p>';
@@ -1560,6 +1932,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
     var focused = document.activeElement && document.activeElement.id === 'device-name';
     document.getElementById('side').innerHTML = h;
+    fitFlowLabels();
     if (focused) { var dn = document.getElementById('device-name'); if (dn) { dn.focus(); dn.setSelectionRange(dn.value.length, dn.value.length); } }
   }
 
@@ -1578,18 +1951,44 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     var paths = '', nodes = '', labels = '';
     list.forEach(function (x) {
       var yr = ys + (x.slot - x.h) / 2;
-      var col = ACCT_COLOR[x.a] || 'var(--ink-3)';
+      var col = acctColor(x.a);
       paths += '<path d="M' + X1 + ' ' + yl.toFixed(1) + ' C' + xm + ' ' + yl.toFixed(1) + ' ' + xm + ' ' + yr.toFixed(1) + ' ' + X2 + ' ' + yr.toFixed(1) +
         ' L' + X2 + ' ' + (yr + x.h).toFixed(1) + ' C' + xm + ' ' + (yr + x.h).toFixed(1) + ' ' + xm + ' ' + (yl + x.h).toFixed(1) + ' ' + X1 + ' ' + (yl + x.h).toFixed(1) + ' Z" style="fill:' + col + ';opacity:0.28"></path>';
       nodes += '<rect x="' + X2 + '" y="' + yr.toFixed(1) + '" width="8" height="' + x.h.toFixed(1) + '" rx="2" style="fill:' + col + '"></rect>';
       var cy = ys + x.slot / 2;
-      labels += '<text x="' + (X2 + 16) + '" y="' + (cy - 3).toFixed(1) + '">' + esc(x.keep ? 'Stays in ' + acctName(x.a) : acctName(x.a)) + '</text>' +
+      labels += '<text class="flow-l" x="' + (X2 + 16) + '" y="' + (cy - 3).toFixed(1) + '">' + esc(x.keep ? 'Stays in ' + acctLabel(x.a) : acctLabel(x.a)) + '</text>' +
         '<text class="amt-t" x="' + (X2 + 16) + '" y="' + (cy + 12).toFixed(1) + '">' + money(x.amt) + '</text>';
       yl += x.h; ys += x.slot + GAP;
     });
     nodes += '<rect x="0" y="' + ((H - Hl) / 2).toFixed(1) + '" width="' + X1 + '" height="' + Hl.toFixed(1) + '" rx="2" style="fill:var(--ink)"></rect>';
-    return '<p class="note">Paychecks (' + money(c.I) + ') land in <b>' + esc(acctName(t.land)) + '</b>.</p>' +
+    return '<p class="note">Paychecks (' + money(c.I) + ') land in <b>' + esc(acctLabel(t.land)) + '</b>.</p>' +
       '<svg viewBox="0 0 ' + W + ' ' + H.toFixed(0) + '" role="img" aria-label="How each paycheck is split between accounts">' + paths + nodes + labels + '</svg>';
+  }
+
+  // Account labels can be long (they carry the owner's name): shorten one that would run past the diagram's
+  // right edge, with the full text as its tooltip. The steps list under the diagram always shows it in full.
+  // It measures text, so it runs again once the web fonts have loaded, starting from each label's full text.
+  // Only cosmetic: whatever goes wrong in here must not stop the side column from showing.
+  function fitFlowLabels() {
+    try {
+      root.querySelectorAll('.flow svg').forEach(function (svg) {
+        var W = svg.viewBox.baseVal.width;
+        svg.querySelectorAll('text.flow-l').forEach(function (t) {
+          var full = t.getAttribute('data-full');
+          if (full === null) { full = t.textContent; t.setAttribute('data-full', full); }
+          t.textContent = full; // also drops a tooltip from an earlier run
+          var max = W - parseFloat(t.getAttribute('x')), s = full;
+          if (!(max > 0) || t.getComputedTextLength() <= max) return;
+          while (s.length > 1 && t.getComputedTextLength() > max) {
+            s = s.slice(0, -1);
+            t.textContent = s.replace(/[\s·]+$/, '') + '…';
+          }
+          var tip = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+          tip.textContent = full;
+          t.insertBefore(tip, t.firstChild);
+        });
+      });
+    } catch (e) { /* the labels keep their full text */ }
   }
 
   function stepsHTML(s, c, t) {
@@ -1601,15 +2000,69 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
         if (v > 0.5) parts.push(G.name.toLowerCase() + ' ' + money(v));
       });
       if (fundOn() && x.a === state.fund.acct && c.fund > 0.5) parts.push('yearly costs fund ' + money(c.fund));
-      h += '<li><span>Move to <b>' + esc(acctName(x.a)) + '</b></span><b>' + money(x.amt) + '</b><span class="why">' + esc(parts.join(' + ')) + '</span></li>';
+      h += '<li><span>Move to <b>' + esc(acctLabel(x.a)) + '</b></span><b>' + money(x.amt) + '</b><span class="why">' + esc(parts.join(' + ')) + '</span></li>';
     });
     var unassigned = Math.max(t.keep - t.keepPlanned, 0);
-    h += '<li><span>Keep in <b>' + esc(acctName(t.land)) + '</b></span><b>' + money(Math.max(t.keep, 0)) + '</b><span class="why">' +
+    h += '<li><span>Keep in <b>' + esc(acctLabel(t.land)) + '</b></span><b>' + money(Math.max(t.keep, 0)) + '</b><span class="why">' +
       'planned spending ' + money(t.keepPlanned) + (unassigned > 0.5 ? ' + ' + money(unassigned) + ' not assigned yet' : '') + '</span></li>';
     h += '</ol>';
     if (t.keep < t.keepPlanned - 0.5) {
       h += '<p class="alert">This plan spends ' + money(t.keepPlanned - t.keep) + ' more than comes in each month. Lower some amounts or add income.</p>';
     }
+    return h;
+  }
+
+  // The kinds a step's "why" text names, as in stepsHTML: the groups, and yearly items while their share goes to the fund.
+  var SHARE_KINDS = GROUPS.map(function (G) { return { key: G.key, name: G.name.toLowerCase() }; }).concat({ key: 'yearly', name: 'yearly costs' });
+  // What person p covers in account a, e.g. "75% of shared savings $500 + Alex’s yearly costs $100", as paid from one of
+  // their incomes: `part` is that income's part of what p covers (α = its amount / p's pay, 1 for their only income).
+  // The amounts named are that part of the shared costs and of p's own, so they add up to the income's step.
+  function shareParts(s, w, pid, a, part) {
+    var parts = [];
+    SHARE_KINDS.forEach(function (k) {
+      var shared = 0, own = 0;
+      s.lines.forEach(function (l) {
+        if ((fundOn() && isYearly(l) ? 'yearly' : l.g) !== k.key || destOf(l) !== a) return;
+        var o = ownerOf(l.acct);
+        if (!o) shared += monthly(l); else if (o === pid) own += monthly(l);
+      });
+      if (shared * part * w[pid] > 0.5) parts.push(pct(w[pid]) + ' of shared ' + k.name + ' ' + money(shared * part));
+      if (own * part > 0.5) parts.push(personName(pid) + '’s ' + k.name + ' ' + money(own * part));
+    });
+    return parts;
+  }
+  function shortText(id, amt) {
+    var who = personName(id);
+    return who + '’s share is ' + money(amt) + ' more than ' + who + '’s pay. Lower some amounts or change the split.';
+  }
+  // Separate pay: each person with pay gets their own steps, one list per income, then the warnings.
+  function personStepsHTML(s, sp) {
+    var h = '<p class="note">Pay lands in more than one account, so each person sets up their own transfers.</p>';
+    sp.people.forEach(function (pp) {
+      var who = personName(pp.id), many = pp.incomes.length > 1;
+      h += '<div class="pp" data-person="' + esc(pp.id) + '"><h3>' + esc(who + '’s pay · ' + money(pp.I) + (many ? '' : ' into ' + acctLabel(pp.incomes[0].land))) + '</h3>';
+      pp.incomes.forEach(function (x) {
+        var inc = findInc(s, x.id), name = String(inc && inc.name || '').trim() || 'Untitled income', part = many ? x.I / pp.I : 1;
+        if (many) h += '<h4>' + esc(name + ' · ' + money(x.I) + ' into ' + acctLabel(x.land)) + '<span class="faint">' + esc('Covers ' + pct(part) + ' of what ' + who + ' pays for') + '</span></h4>';
+        h += '<ol class="steps">';
+        x.moves.forEach(function (m) {
+          h += '<li><span>Move to <b>' + esc(acctLabel(m.a)) + '</b></span><b>' + money(m.amt) + '</b><span class="why">' + esc(shareParts(s, sp.w, pp.id, m.a, part).join(' + ')) + '</span></li>';
+        });
+        var kept = shareParts(s, sp.w, pp.id, x.land, part), unassigned = Math.max(x.keep - x.keepPlanned, 0);
+        if (unassigned > 0.5) kept.push(money(unassigned) + ' not assigned yet');
+        h += '<li><span>Keep in <b>' + esc(acctLabel(x.land)) + '</b></span><b>' + money(Math.max(x.keep, 0)) + '</b><span class="why">' + esc(kept.join(' + ') || 'nothing planned here') + '</span></li></ol>';
+      });
+      sp.short.forEach(function (x) { if (x.id === pp.id) h += '<p class="alert">' + esc(shortText(x.id, x.amt)) + '</p>'; });
+      h += '</div>';
+    });
+    // People with no pay: a share of shared items (set percentages), and accounts of theirs with items in them.
+    sp.short.forEach(function (x) {
+      if (!sp.people.some(function (pp) { return pp.id === x.id; })) h += '<p class="alert">' + esc(shortText(x.id, x.amt)) + '</p>';
+    });
+    sp.unfunded.forEach(function (u) {
+      var who = personName(ownerOf(u.a));
+      h += '<p class="alert">' + esc('Nobody’s pay covers ' + acctLabel(u.a) + ' (' + money(u.amt) + '): ' + who + ' has no take-home in this scenario. Move those items to a shared account, or add ' + who + '’s pay.') + '</p>';
+    });
     return h;
   }
 
@@ -1708,7 +2161,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     state.touched = true;
     state.modifiedAt = now;
     state.lastSync = { at: now, kind: 'import', by: p.exportedBy || '' };
-    banner = { kind: 'info', html: 'Imported the plan' + (p.exportedBy ? ' from ' + esc(p.exportedBy) : '') + '.' };
+    var lead = 'Imported the plan' + (p.exportedBy ? ' from ' + esc(p.exportedBy) : '') + '.';
+    // A file from an older version has no people yet: say so, with the import message first.
+    banner = p.state && p.state.v < DATA_V ? { kind: 'people', lead: lead } : { kind: 'info', html: lead };
     resetView();
     persist();
     renderAll();
@@ -1746,18 +2201,32 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       return;
     }
     if (sc === 'line') { var l = findLine(s, id); if (!l) return; if (t.tagName === 'SELECT') return; l[f] = isNum ? n(v) : v; }
-    else if (sc === 'inc') { var x = findInc(s, id); if (!x) return; x[f] = isNum ? n(v) : v; }
+    else if (sc === 'inc') { var x = findInc(s, id); if (!x || t.tagName === 'SELECT') return; x[f] = isNum ? n(v) : v; }
     else if (sc === 'goal') { var lg = findLine(s, id); if (!lg) return; if (t.tagName === 'SELECT') return; lg.goal = lg.goal || newGoal(); if (f === 'saved') setGoalBalance(lg, n(v)); else lg.goal[f] = n(v); }
     else if (sc === 'scn') { if (f === 'depositTo') return; s[f] = v; }
+    // A percentage in the editor column: refresh() keeps the input (and its focus) while the payday plan follows.
+    else if (sc === 'split') { if (t.tagName === 'SELECT' || f !== 'pct' || !findPerson(id)) return; s.split.pct[id] = n(v); }
     else if (sc === 'cat') {
       var ct = findCat(id); if (!ct) return;
       ct.name = v;
       root.querySelectorAll('select[data-field="cat"] option[value="' + id + '"]').forEach(function (o) { o.textContent = catName(id); });
     }
+    else if (sc === 'person') {
+      var pp = findPerson(id); if (!pp || t.tagName === 'SELECT') return;
+      pp.name = v;
+      // Show the name wherever it is shown, without re-drawing the input being typed in (labels follow in refresh()).
+      var pShown = personName(id);
+      root.querySelectorAll('optgroup[data-person="' + id + '"]').forEach(function (g) { g.label = pShown; });
+      root.querySelectorAll('.acct-group h3[data-person="' + id + '"]').forEach(function (h3) { h3.textContent = pShown; });
+      root.querySelectorAll('select[data-field="owner"] option[value="' + id + '"], select[data-field="who"] option[value="' + id + '"]').forEach(function (o) { o.textContent = pShown; });
+      relabelAcctOptions(); // their accounts' labels carry the name
+      // An empty name shows as "Person N", so the other empty names may have changed place; the field hints follow.
+      state.people.forEach(function (q) { var qi = document.getElementById('pn-' + q.id); if (qi) qi.placeholder = personName(q.id); });
+    }
     else if (sc === 'acct') {
-      state.accounts[id] = state.accounts[id] || { name: id, note: '' };
-      state.accounts[id][f] = v;
-      if (f === 'name') root.querySelectorAll('select option[value="' + id + '"]').forEach(function (o) { o.textContent = v; });
+      var ac = findAcct(id); if (!ac || t.tagName === 'SELECT') return;
+      ac[f] = v;
+      if (f === 'name') relabelAcctOptions(); // rename it in every menu without re-drawing this input
     }
     changed();
     refresh();
@@ -1772,11 +2241,30 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       return;
     }
     if (sc === 'fund' && f === 'acct') { state.fund.acct = v; changed(); rerenderEditor('fund-acct'); return; }
+    // "Set percentages" shows one input per person; the other modes show none.
+    if (sc === 'split' && f === 'mode') {
+      if (SPLIT_MODES.indexOf(v) < 0) return;
+      s.split.mode = v; changed(); rerenderEditor('split-mode');
+      return;
+    }
+    // A new owner moves the account to that person's group, and changes its label and its place in every menu.
+    if (sc === 'acct' && f === 'owner') {
+      var oa = findAcct(id); if (!oa) return;
+      oa.owner = v; changed(); rerenderEditor('aw-' + id);
+      return;
+    }
+    // Whose pay it is and where it lands change what the scenario is and which accounts are in use: redraw, keeping focus.
+    if (sc === 'inc') {
+      var xi = findInc(s, id); if (!xi) return;
+      xi[f] = v; changed(); rerenderEditor(t.id);
+      return;
+    }
     if (sc === 'line') {
       var l = findLine(s, id); if (!l) return;
       if (f === 'due') l.due = parseInt(v, 10) || 0; else l[f] = v;
       changed();
-      if (f === 'f') rerenderEditor('f-' + id); else refresh();
+      // How often moves an item in or out of the yearly card; its account changes what the Accounts card lets you remove.
+      if (f === 'f' || f === 'acct') rerenderEditor(t.id); else refresh();
     }
     else if (sc === 'scn') { s[f] = v; changed(); refresh(); }
     else if (sc === 'goal') {
@@ -1817,6 +2305,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (act !== 'del-scn') pendingDelete = null;
     if (act !== 'reset') pendingReset = false;
     if (act !== 'del-cat') pendingDeleteCat = null;
+    if (act !== 'del-acct') pendingDeleteAcct = null;
+    if (act !== 'del-person') pendingDeletePerson = null;
     if (act !== 'ci-del') pendingCiDel = null;
     if (act === 'tour' || act === 'tour-start') { startTour(); return; }
     if (act === 'tour-later') { lsSet(TOUR_KEY, '1'); banner = null; renderBanner(); return; }
@@ -1851,9 +2341,32 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (act === 'import') { startImport(); return; }
     if (act === 'import-confirm') { confirmImport(); return; }
     if (act === 'banner-close') { banner = null; renderBanner(); return; }
+    if (act === 'goto-people') {
+      banner = null; renderBanner();
+      var pc = document.querySelector('[data-tour="people"]'), pf = state.people.length ? document.getElementById('pn-' + state.people[0].id) : null;
+      if (pc) pc.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'start' });
+      if (pf) pf.focus({ preventScroll: true });
+      return;
+    }
+    if (act === 'add-person') {
+      var np = { id: nid(), name: 'Person ' + (state.people.length + 1) };
+      state.people.push(np); changed(); rerenderEditor('pn-' + np.id);
+      var pe = document.getElementById('pn-' + np.id); if (pe) pe.select();
+      return;
+    }
+    if (act === 'del-person') {
+      var dp = b.getAttribute('data-id');
+      if (state.people.length < 2 || !findPerson(dp)) return;
+      if (pendingDeletePerson === dp) {
+        removePerson(dp); pendingDeletePerson = null; changed(); rerenderEditor('pn-' + state.people[0].id);
+      } else { pendingDeletePerson = dp; rerenderEditor('dp-' + dp); }
+      return;
+    }
     if (act === 'add-line') {
       var g = b.getAttribute('data-g');
-      var nl = L(g, g === 'save' ? 'New savings item' : 'New item', 0, 'mo', g === 'save' ? 'jsav' : 'jchk');
+      // A savings item goes to the first savings account; anything else is paid from where pay lands, else the first spending account.
+      var nl = L(g, g === 'save' ? 'New savings item' : 'New item', 0, 'mo',
+        g === 'save' ? acctsOfKind('save')[0] : payMode(s).land);
       if (g === 'save') nl.goal = newGoal();
       var lastIdx = -1; s.lines.forEach(function (l, i) { if (l.g === g) lastIdx = i; });
       s.lines.splice(lastIdx + 1, 0, nl);
@@ -1876,8 +2389,28 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       } else { pendingDeleteCat = did; rerenderEditor('dc-' + did); }
       return;
     }
+    if (act === 'add-acct') {
+      var kind = b.getAttribute('data-kind') === 'save' ? 'save' : 'spend', na = nid();
+      state.accounts[na] = { name: kind === 'save' ? 'New savings' : 'New checking', note: '', kind: kind, owner: '' };
+      state.acctOrder.push(na);
+      changed(); rerenderEditor('an-' + na);
+      var ae = document.getElementById('an-' + na); if (ae) ae.select();
+      return;
+    }
+    if (act === 'del-acct') {
+      var da = b.getAttribute('data-id');
+      if (!canDeleteAcct(da)) return;
+      if (pendingDeleteAcct === da) {
+        delete state.accounts[da];
+        state.acctOrder = state.acctOrder.filter(function (a) { return a !== da; });
+        pendingDeleteAcct = null; changed(); rerenderEditor(null);
+      } else { pendingDeleteAcct = da; rerenderEditor('da-' + da); }
+      return;
+    }
     if (act === 'del-line') { var id = b.getAttribute('data-id'); s.lines = s.lines.filter(function (l) { return l.id !== id; }); changed(); rerenderEditor(null); return; }
-    if (act === 'add-inc') { var ni = { id: nid(), name: 'Other income', amt: 0 }; s.incomes.push(ni); changed(); rerenderEditor('in-' + ni.id); var ie = document.getElementById('in-' + ni.id); if (ie) ie.select(); return; }
+    if (act === 'add-inc') {
+      var ni = newIncome(s);
+      s.incomes.push(ni); changed(); rerenderEditor('in-' + ni.id); var ie = document.getElementById('in-' + ni.id); if (ie) ie.select(); return; }
     if (act === 'del-inc') { var iid = b.getAttribute('data-id'); s.incomes = s.incomes.filter(function (x) { return x.id !== iid; }); changed(); rerenderEditor(null); return; }
     if (act === 'copy-scn') {
       var cp = JSON.parse(JSON.stringify(s));
@@ -1890,7 +2423,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       return;
     }
     if (act === 'new-scn') {
-      var ns = { id: nid(), name: 'New scenario', sub: '', depositTo: s.depositTo, incomes: [], lines: [] };
+      var ns = { id: nid(), name: 'New scenario', sub: '', depositTo: payMode(s).land, split: { mode: 'income', pct: {} }, incomes: [], lines: [] };
       state.scenarios.push(ns); state.active = ns.id;
       changed(); renderAll();
       var nn = document.getElementById('scn-name'); if (nn) { nn.focus(); nn.select(); }
@@ -1946,7 +2479,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     state = r.plan; savedAt = Date.now(); storageOk = true;
     // As after an import: confirms armed and the check-in month picked here referred to the plan this window had.
     resetView(); pendingReset = false;
-    if (!banner || banner.kind !== 'import') banner = { kind: 'info', html: 'Updated from another window.' };
+    // An import waiting for "Replace plan" stays, and so does the ask for names after an upgrade.
+    if (!banner || (banner.kind !== 'import' && banner.kind !== 'people')) banner = { kind: 'info', html: 'Updated from another window.' };
     renderAll();
     placeSpot(false);
   }
@@ -1955,19 +2489,22 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   window.addEventListener('pageshow', function (e) { if (e.persisted) syncFromStorage(); });
 
   renderAll();
+  // The first render measured the diagram's labels in whatever font was there; measure again once the web fonts are in.
+  // (Asked after that render, since laying it out is what starts the fonts loading.)
+  try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitFlowLabels, function () {}); } catch (e) { /* no font loading API */ }
 
   /* ---------- tour ---------- */
   var TOUR = [
     { sel: null, title: 'Welcome to your budget planner',
       text: 'This app plans your month; Honeydue tracks it day to day. This tour shows what each part tells you and what to do with it. Use the arrow keys or the buttons; Close ends it any time.' },
     { sel: '[data-tour="scenarios"]', title: 'Scenarios',
-      text: 'Each tab is a version of your plan, like now and after you both work and pay rent. Switch tabs to edit one, copy a tab to try a change without touching the original, or start a new one from scratch. The × on a tab deletes it.' },
+      text: 'Each tab is a version of your plan, like now and after a new job or a move. Switch tabs to edit one, copy a tab to try a change without touching the original, or start a new one from scratch. The × on a tab deletes it.' },
     { sel: '[data-tour="summary"]', title: 'Where the money goes',
       text: 'Take-home pay split into necessities, savings and variable spending, with what’s left to assign. The ticks mark the 50/30/20 rule of thumb: a reference point, not a target.' },
     { sel: '[data-tour="checkin"]', title: 'Monthly check-in',
       text: 'Once a month, type each category’s total from Honeydue and your savings balances. You’ll see what ran over or under and whether each goal is on track. Balances start as what the plan expected; correct only what differs.' },
     { sel: '[data-tour="income"]', title: 'Income',
-      text: 'Monthly take-home pay for each of you, after tax, and the account your paychecks land in. Every transfer starts from that account.' },
+      text: 'Monthly take-home pay after tax, with whose pay it is and the account it lands in. Every transfer starts from the account a paycheck lands in.' },
     { sel: '[data-tour="need"]', title: 'Necessities',
       text: 'Bills and essentials. Give each one how often it’s paid and the account it’s paid from; weekly and yearly amounts are converted to a monthly figure.' },
     { sel: '[data-tour="save"]', title: 'Savings',
@@ -1975,13 +2512,15 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     { sel: '[data-tour="want"]', title: 'Variable spending',
       text: 'Eating out, subscriptions, personal spending and a buffer for surprises. These are the amounts you’re most likely to adjust after a check-in.' },
     { sel: '[data-tour="categories"]', title: 'Honeydue categories',
-      text: 'Group your lines into the categories you use in Honeydue. Rename, add or delete them any time; the Honeydue limits add up the lines in each one.' },
+      text: 'Group your items into the categories you use in Honeydue. Rename, add or delete them any time; the Honeydue limits add up the items in each one.' },
     { sel: '[data-tour="yearly"]', title: 'Yearly costs',
       text: 'Set the month each yearly bill is paid. A twelfth is set aside each payday in the account you choose, and the calendar warns if a bill would come before the fund has enough.' },
+    { sel: '[data-tour="people"]', title: 'People',
+      text: 'Add everyone whose pay or accounts belong in the plan, and rename them. Each person can have their own accounts and their own take-home pay.' },
     { sel: '[data-tour="accounts"]', title: 'Accounts',
-      text: 'Rename these to match your banks. The names appear in the transfer plan and in every account menu.' },
+      text: 'Rename these to match your banks. Shared accounts are listed first, then each person’s own. The names appear in the transfer plan and in every account menu.' },
     { sel: '[data-tour="transfers"]', title: 'Payday transfer plan',
-      text: 'The recurring transfers to set up at your bank: how much moves from the account your pay lands in to each of the others. What stays behind covers spending paid from that account.' },
+      text: 'The recurring transfers to set up at your bank, from the account your pay lands in to each of the others. When pay is pooled you get one list; when it isn’t, each person gets their own, and shared costs are split by the rule you choose.' },
     { sel: '[data-tour="goals"]', title: 'Savings goals',
       text: 'Each goal’s balance, target and status: on track, behind, or how much more a month it needs. The yearly-costs fund is listed first when it’s on.' },
     { sel: '[data-tour="honeydue"]', title: 'Honeydue limits',
@@ -2080,6 +2619,10 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     honeydueText: function () { return honeydueText(scn()); },
     spendRows: function (m) { return spendRows(scn(), m); },
     dateStatus: dateStatus, paceStatus: paceStatus, projectFund: projectFund,
+    payMode: function () { return payMode(scn()); },
+    weights: function () { return weights(scn()); },
+    splitPlan: function () { return splitPlan(scn(), calc(scn())); },
+    transfers: function (id) { var s = id ? findScn(id) : scn(); return s ? transfers(s, calc(s)) : null; },
     tourState: function () { var st = tourSteps[tourI]; return { i: tourI, n: tourSteps.length, sel: st ? st.sel : null }; }
   };
 

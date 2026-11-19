@@ -1,9 +1,10 @@
 # Household Budget Planner
 
-A small installable web app (PWA) for a couple to plan a monthly household budget together:
-split take-home pay into necessities, savings and variable spending, see the payday transfers
-between accounts, track savings goals, and compare scenarios ("Now" vs "Both working + rent").
-Lines are grouped into Honeydue categories, a monthly check-in compares Honeydue's actual totals
+A small installable web app (PWA) for a household to plan a monthly budget together:
+add the people, say whose pay and whose accounts are whose, split take-home pay into necessities,
+savings and variable spending, see the payday transfers between accounts (pooled, or one list per
+person when pay is separate), track savings goals, and compare scenarios (versions of the plan).
+Items are grouped into Honeydue categories, a monthly check-in compares Honeydue's actual totals
 with the plan, goals can have a "by" date, a yearly-costs fund sets aside a twelfth of yearly bills,
 and an in-app tour explains each part.
 Live at https://jd-anabi.github.io/household-budget-planner/ (GitHub Pages, deployed from `main`, root).
@@ -32,23 +33,30 @@ per-transaction tracking.
   cache fallback offline; cache-first for Google Fonts.
 - `manifest.webmanifest`, `icons/`: install metadata and icons.
 - `tests/smoke.js`: headless-browser smoke test (Playwright) in named sections; `tests/fixtures/plan-v1.json`
-  is a v1 export of the example plan for migration tests. Not part of the app, so they stay out of `ASSETS`.
-- `docs/superpowers/`: the design and plan for the v2 features. `.nojekyll` makes GitHub Pages serve
-  files as-is, so Markdown here can never break a deploy.
+  and `plan-v2.json` are exports of the older two-scenario example plan, for migration tests and for sections
+  that need its numbers. Not part of the app, so they stay out of `ASSETS`.
+- `docs/superpowers/`: the designs (`specs/`) and plans (`plans/`) for the v2 features (categories, check-in,
+  goals, tour) and for v3 (people and accounts). `.nojekyll` makes GitHub Pages serve files as-is, so Markdown
+  here can never break a deploy.
 
-## Data model (`state`, v2)
+## Data model (`state`, v3)
 
 ```
-{ v: 2, touched, modifiedAt, lastSync: {at, kind: 'export'|'import', by} | null, active,
-  accounts: { jchk, mchk, jsav, msav, inv: { name, note } },
+{ v: 3, touched, modifiedAt, lastSync: {at, kind: 'export'|'import', by} | null, active,
+  people: [{ id, name }],                               // the household, n ≥ 1, in display order
+  accounts: { <acctId>: { name, note,                   // keyed by id; v2's jchk, mchk, jsav, msav, inv are ordinary ids
+               kind: 'spend'|'save',                    // spending (pays need/want, pay lands here) or savings/investing
+               owner: '' | personId } },                // '' = Shared; an owner who no longer exists counts as Shared
+  acctOrder: [acctId],                                  // display order of the accounts the app shows
   cats: [{ id, name }],                                 // Honeydue categories, shared by all scenarios
-  fund: { acct: '' | 'jsav'|'msav'|'inv', saved },      // yearly-costs fund; '' = off
+  fund: { acct: '' | savingsAcctId, saved },            // yearly-costs fund; '' = off
   checkins: [{ month: 'YYYY-MM', scn, scnName, startedAt, by,          // one per month, sorted
     spend: [{ key: catId | 'line:'+lineId | 'other', name, planned, actual | null, note }],
     goals: [{ line, name, acct, target, planned, months, start, balance, assumed }],
     fund:  null | { acct, planned, due, months, start, balance, assumed } }],
-  scenarios: [{ id, name, sub, depositTo: 'jchk'|'mchk',
-    incomes: [{ id, name, amt }],                       // monthly take-home
+  scenarios: [{ id, name, sub, depositTo,               // depositTo: the v2 landing account, kept as a fallback
+    split: { mode: 'income'|'equal'|'custom', pct: { personId: number } },  // how shared costs split when pay is separate
+    incomes: [{ id, name, amt, who: personId, to: acctId }],  // monthly take-home; whose pay, which spending account it lands in
     lines:   [{ id, g: 'need'|'save'|'want', name, amt, f: 'mo'|'wk'|'yr', acct,
                 cat?: '' | catId, due?: 0..12,           // need/want only; due = month a yearly line is paid
                 goal?: { mode: 'none'|'amount'|'months', amount, months, saved, by: '' | 'YYYY-MM' } }] }] }
@@ -61,15 +69,36 @@ per-transaction tracking.
   what is stored through `readStored()`, the same path as on load (upgrade, newer-version guard, backup),
   drops its own pending save and re-renders. It skips a value equal to `seenRaw`, the one it last read or
   wrote. It never writes back from that handler, or two windows would overwrite each other.
-- Export file: `{ app: 'household-budget-planner', v: 2, exportedAt, exportedBy, state }`, named
+- Export file: `{ app: 'household-budget-planner', v: 3, exportedAt, exportedBy, state }`, named
   `budget-plan-YYYY-MM-DD.json`. On touch devices it uses the share sheet; otherwise a download.
   Import validates, then asks before replacing the device's plan.
-- `migrate()` upgrades v1 to v2 on load and on import by only adding fields (`cats: []`,
-  `checkins: []`, `fund: {acct: '', saved: 0}`, `cat: ''`, `due: 0`, `by: ''`); unknown fields are kept.
-  Before upgrading a stored v1 plan, the raw JSON is copied to `household-budget-planner:plan:v1-backup`.
-- Guard: a stored plan or imported file with `v` newer than the app (`DATA_V`) is never saved over;
+- `migrate()` upgrades older plans one step at a time, on load and on import, by only adding fields;
+  unknown fields are kept. v1 → v2 (`v1to2`) adds `cats: []`, `checkins: []`, `fund: {acct: '', saved: 0}`,
+  `cat: ''`, `due: 0`, `by: ''`. v2 → v3 (`v2to3`) adds one person "Person 1"; the five v2 accounts
+  (a missing one is created as `{name: id, note: ''}`) with kinds `jchk`/`mchk` spend, the rest save,
+  and owners `mchk`/`msav` Person 1, the rest Shared; `acctOrder: ['jchk','mchk','jsav','msav','inv']`;
+  every income `who` = Person 1 and `to` = the scenario's `depositTo` if that is `jchk` or `mchk`, else
+  `jchk` (so every upgraded scenario is pooled and its payday plan is unchanged); `split: {mode: 'income', pct: {}}`.
+- Validation (`validPlan`, v3; `validV2` checks a v2 plan between steps) refuses a malformed plan rather than
+  half-loading it. Ids that reach HTML must match `ID_RE`: people ids, `acctOrder` entries, income `who`/`to`,
+  `split.pct` keys (and category, line, scenario, income and check-in ids as before). People ids, `acctOrder`
+  entries and `split.pct` keys are also object keys, so they can't be names every object inherits (`__proto__`,
+  `constructor`, `toString`…), and people ids and `acctOrder` entries are each listed once. `people` is non-empty,
+  every `acctOrder` entry is an account with a kind, there is at least one spending and one savings
+  account, `fund.acct` is `''` or a savings account, and `split.mode` is one of the three. Dangling
+  references (an owner, `who` or `to` that no longer exists) are allowed and shown gracefully.
+- Backups: before upgrading a stored plan of version k (1 or 2), its raw JSON is copied to
+  `household-budget-planner:plan:v{k}-backup`; a stored value that can't be read goes to the `v1-backup`
+  key. Each is written only if that key is empty. `readStored()` returns `{ plan, newer, upgraded, from }`.
+- Guard: a stored plan or imported file with `v` newer than the app (`DATA_V = 3`) is never saved over;
   the app shows "This plan was saved by a newer version of the app…" and blocks export/import.
-  The v1 app has the same guard, so rolling the v2 features back cannot overwrite a v2 plan.
+  The v1 and v2 apps have the same guard, so rolling the v3 features back cannot overwrite a v3 plan.
+- Example plan (`defaults()`, a fresh device and "Reset to example plan"): one scenario "Example"; people Alex
+  and Sam, each with an income landing in Joint checking (pooled); Joint checking, Joint savings and
+  Retirement / investing shared, plus a Checking each; six categories; the yearly-costs fund on into Joint
+  savings; an emergency-fund goal and a dated Vacation goal. Generic names and round numbers only.
+- Item vs `lines`: the screen says "item", never "line". The `lines` field, `data-scope="line"` and
+  `'line:' + id` check-in keys keep their names (renaming them would need a migration for no visible gain).
 - Monthly conversion: weekly × 52/12, yearly × 1/12. All amounts are after-tax dollars.
 - Goal balance is one number: the latest check-in's `balance` for that goal (matched by line id, then
   name), else `goal.saved`; "Saved so far" edits that same number (and is then labelled
@@ -84,22 +113,37 @@ per-transaction tracking.
   Honeydue limits then leave yearly lines out. A check-in plans a dated yearly line in full in its due
   month and at 0 in other months (spread lines at 1/12).
   A check-in's fund row is pre-filled as max(0, start + c × months − bills due in those months).
-- Transfer plan: paychecks land in `depositTo`; every other account receives the sum of lines
-  assigned to it (plus the fund share for the fund account); the rest stays in the landing account.
+- Transfer plan (`payMode`, `transfers`, `weights`, `splitPlan`). An income is active from $0.50 a month and lands
+  in `incTo()` (its `to`, else the first spending account). Each item has a bearer, `acct` (whose cost it is), and a
+  destination, `destOf()` (the fund account for a yearly item while the fund is on, else `acct`). N_a = `calc().by[a]`
+  sums items by destination. Group totals, Honeydue limits, goals, the fund and check-ins don't depend on the mode.
+  - Pooled (all active incomes land in one account d, or none is active): move N_a to every other account with
+    N_a > 0.5, in `acctOrder`; the rest stays in d. One diagram and one steps list, as in v2.
+  - Separate (two or more landing accounts): the Income card shows "Split shared costs" (`#split`, hidden while
+    pooled) and the payday card has one block per person with pay, a steps list per income. Weights w_p sum to 1
+    when anyone has pay (else all 0): by take-home I_p / ΣI; equally 1 / (people with pay), 0 for the rest; set
+    percentages pct_p / Σ pct over current people (scaled, with a note; Σ = 0 means equally). A person's share of
+    an item goes by its bearer: σ_p = 1 for their own account, w_p for a shared one (or one whose owner is gone),
+    0 for someone else's. O_{p,a} = Σ σ_p·m over items with destination a, so a yearly bill from Alex's own account
+    is Alex's alone, though its share goes to the fund. Income i of person p moves T_{i,a} = (I_i / I_p)·O_{p,a} to
+    each account a other than its landing account d (shown if > 0.5); of the rest, (I_i / I_p)·O_{p,d} is planned.
+    L_p = I_p − Σ_a O_{p,a}. Warnings: L_p < −0.5 ("<Name>’s share is $X more than <Name>’s pay"; for someone with
+    no pay, their share of shared items), and an account owned by someone with no pay whose items total > 0.5
+    ("Nobody’s pay covers <account> ($X)…"): flagged, not quietly paid from shared money.
 - Tour: `household-budget-planner:tour-seen` in localStorage, per device, not exported.
 
 ## How the UI code works
 
-- `renderAll()` rebuilds everything; use it for structural changes (add/remove a line, switch scenario).
+- `renderAll()` rebuilds everything; use it for structural changes (add/remove an item, switch scenario).
 - `refresh()` updates only derived numbers, the summary and the side column, so inputs keep focus
   while typing. Prefer it for value edits. It rebuilds the side column every time, so **inputs belong
   in the editor column** (check-in, categories and yearly cards live there); the side column is read-only.
 - Editor cards, top to bottom: check-in, income, necessities, savings, variable, Honeydue categories,
-  yearly costs, accounts. Every card has a `data-tour` attribute the tour points at.
+  yearly costs, people, accounts. Every card has a `data-tour` attribute the tour points at.
 - `window.__hbp` exposes read-only helpers (migration, month maths, statuses, projection) for the tests.
 - Events are delegated on `#root`: inputs carry `data-scope` / `data-id` / `data-field`, buttons carry `data-act`.
 - Destructive actions use a click-twice confirm, not `confirm()`.
-- Scenarios are managed from the tab row: "+ New scenario" (blank: no incomes or lines), "+ Copy this scenario",
+- Scenarios are managed from the tab row: "+ New scenario" (blank: no incomes or items), "+ Copy this scenario",
   and a × on each tab that deletes that scenario (click twice; hidden when only one is left).
 
 ## Design
@@ -130,8 +174,8 @@ it warns and skips.
 ## Feature ideas under consideration
 
 Done: monthly check-in (was 1), calendar of yearly costs as part of the yearly-costs fund (was 4).
-The in-app tour covers part of idea 3: it explains the app but doesn't collect numbers.
+The in-app tour explains the app but doesn't collect numbers; a first-time setup walkthrough that does is not planned yet.
 
-1. Savings projections with interest: B_t = B_0 (1+r)^t + s((1+r)^t − 1)/r at monthly rate r, charted per goal.
-2. First-time setup walkthrough that collects income, rent and fixed bills instead of editing examples.
-3. Per-paycheck transfers for twice-monthly or biweekly pay.
+1. Per-paycheck transfers for twice-monthly or biweekly pay (a pay schedule on each income; divides the per-income transfers).
+2. Planned changes over time: a timeline of scenarios (switch to another scenario from a given month).
+3. Interest on savings: B_t = B_0 (1+r)^t + s((1+r)^t − 1)/r at monthly rate r, a rate per savings account, charted per goal.

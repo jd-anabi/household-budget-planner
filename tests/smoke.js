@@ -23,9 +23,11 @@ const { chromium } = require('playwright');
 const ROOT = path.resolve(__dirname, '..');
 const APP_ID = 'household-budget-planner';
 const PLAN_KEY = 'household-budget-planner:plan:v1';
-const BACKUP_KEY = 'household-budget-planner:plan:v1-backup';
-const DATA_VERSION = 2; // Bump with the data model, and add a check that an older plan file still imports.
+const backupKey = (k) => `household-budget-planner:plan:v${k}-backup`; // where a stored plan of version k is copied before its upgrade
+const BACKUP_KEY = backupKey(1); // also where a stored value the app can't read is copied
+const DATA_VERSION = 3; // Bump with the data model, and add a check that an older plan file still imports.
 const FIXTURE_V1 = path.join(__dirname, 'fixtures', 'plan-v1.json');
+const FIXTURE_V2 = path.join(__dirname, 'fixtures', 'plan-v2.json');
 const SHOTS = process.argv[2] ? path.resolve(process.argv[2]) : null;
 const ONLY = (process.env.ONLY || '').split(',').map((s) => s.trim()).filter(Boolean);
 const AMT = 'input[data-field="amt"]';
@@ -122,6 +124,10 @@ function swReady(page) {
   ]));
 }
 
+// The example plan as it was in v2, stored as the device's plan, so example-dependent sections do not follow later example changes.
+const oldPlan = () => JSON.parse(fs.readFileSync(FIXTURE_V2, 'utf8')).state;
+const OLD = () => ({ [PLAN_KEY]: JSON.stringify(oldPlan()) });
+
 // lastSync, modifiedAt and touched are rewritten on import by design.
 function withoutSyncFields(state) {
   const copy = JSON.parse(JSON.stringify(state));
@@ -137,6 +143,7 @@ section('basics', async () => {
   page.on('response', (r) => { if (r.url().startsWith('https://fonts.googleapis.com/')) fontsCss = r.status(); });
   await page.goto(APP_URL, { waitUntil: 'networkidle' });
   check('app renders its budget lines', (await page.locator(AMT).count()) > 0);
+  check('the page never says “line”', !/\blines?\b/i.test(await page.locator('body').innerText()));
 
   if (fontsCss === 'no response') {
     warn('Google Fonts', 'fonts.googleapis.com unreachable from here; skipped');
@@ -215,18 +222,31 @@ section('layout', async () => {
   check('dark theme applies', background['phone-light'] !== background['phone-dark'],
     `light ${background['phone-light']}, dark ${background['phone-dark']}`);
 
+  // A select can't wrap its text: on a phone an item's account menu needs room for "Checking · Alex" while closed.
+  const pm = await openPage({ viewport: { width: 390, height: 844 } });
+  await pm.page.evaluate(() => document.fonts.ready);
+  const menus = await pm.page.evaluate(() => window.__hbp.state().scenarios[0].lines.filter((l) => /^Personal spending/.test(l.name)).map((l) => {
+    const sel = document.getElementById(`c-${l.id}`), cs = getComputedStyle(sel), cx = document.createElement('canvas').getContext('2d');
+    cx.font = cs.font;
+    const text = sel.selectedOptions[0].textContent;
+    // the text, the padding and about 24px for the arrow
+    return { text, need: Math.ceil(cx.measureText(text).width + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + 24), width: sel.clientWidth };
+  }));
+  check('390px: a closed account menu has room to say whose account it is', menus.length === 2 && menus.every((x) => x.text.includes(' · ') && x.need <= x.width), JSON.stringify(menus));
+  await pm.ctx.close();
+
   // Card heads with a description keep their total or count where the group cards keep theirs:
   // top right beside the title on wide screens, under the description on a phone.
   for (const width of [1280, 700, 390]) {
     const { ctx, page } = await openPage({ viewport: { width, height: 900 } });
-    const heads = await page.evaluate(() => ['need', 'yearly', 'categories'].map((t) => {
+    const heads = await page.evaluate(() => ['need', 'yearly', 'categories', 'people'].map((t) => {
       const h = document.querySelector(`[data-tour="${t}"] .card-head`);
       const title = h.querySelector('h2').getBoundingClientRect(), aside = h.lastElementChild.getBoundingClientRect(), r = h.getBoundingClientRect();
       return { t, beside: aside.top < title.bottom, gap: Math.round(r.right - aside.right) };
     }));
     const need = heads[0];
     const bad = heads.filter((x) => x.beside !== need.beside || (x.beside && x.gap > 1));
-    check(`${width}px: the yearly and category card heads lay out like the group cards`, bad.length === 0, JSON.stringify(heads));
+    check(`${width}px: the yearly, category and people card heads lay out like the group cards`, bad.length === 0, JSON.stringify(heads));
     await ctx.close();
   }
 
@@ -238,6 +258,23 @@ section('layout', async () => {
   const wide = await ph.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   check(`a ${long.length}-character scenario name in "Compared with" fits a 390px screen`, wide <= 0, `${wide}px too wide`);
   await ph.ctx.close();
+
+  // Account labels carry the owner's name: a long one wraps (payday steps, tags) instead of widening a phone screen.
+  const longName = 'Wolfeschlegelsteinhausen'; // 24 characters with no place to break
+  for (const scheme of ['light', 'dark']) {
+    const lp = await openPage({ viewport: { width: 390, height: 844 }, colorScheme: scheme, storage: OLD(), date: '2026-11-16T12:00' });
+    const p1 = await lp.page.evaluate(() => window.__hbp.state().people[0].id);
+    await lp.page.fill(`#pn-${p1}`, longName);
+    await lp.page.click('[data-act="ci-start"]'); // its goal rows show account labels too
+    const over = await lp.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    // Content can spill past a card into the page's side gutter before the page itself scrolls.
+    const spill = await lp.page.$$eval('.card', (els) => els.filter((c) => c.scrollWidth > c.clientWidth).map((c) => `${c.getAttribute('aria-label')} ${c.scrollWidth - c.clientWidth}px`));
+    const shown = (await lp.page.locator('.steps').innerText()).includes(`Keep in My checking · ${longName}`);
+    check(`390px ${scheme}: a ${longName.length}-character person name in account labels fits`, shown && over <= 0 && spill.length === 0,
+      `${over}px too wide, cards too wide: ${spill.join(', ') || 'none'}, shown: ${shown}`);
+    if (SHOTS) await lp.page.screenshot({ path: path.join(SHOTS, `phone-long-name-${scheme}.png`), fullPage: true });
+    await lp.ctx.close();
+  }
 });
 
 section('guard', async () => {
@@ -272,38 +309,127 @@ section('guard', async () => {
   await b.ctx.close();
 });
 
+// What the v2 → v3 upgrade adds (spec §8), checked on the upgraded plan `st` against the v2-shaped plan `src` it came from.
+function upgradeChecks(label, st, src) {
+  const people = Array.isArray(st.people) ? st.people : [];
+  const pid = people[0] && people[0].id;
+  const acct = (a) => st.accounts[a] || {};
+  const scns = JSON.stringify(st.scenarios.map((s) => ({ id: s.id, incomes: s.incomes.map((x) => `${x.who} → ${x.to}`), split: s.split })));
+  check(`upgrade adds one placeholder person (${label})`, people.length === 1 && people[0].name === 'Person 1', `people: ${JSON.stringify(st.people)}`);
+  check(`the five accounts get kinds and owners (${label})`, !!pid &&
+    ['jchk', 'mchk'].every((a) => acct(a).kind === 'spend') && ['jsav', 'msav', 'inv'].every((a) => acct(a).kind === 'save') &&
+    acct('mchk').owner === pid && acct('msav').owner === pid && ['jchk', 'jsav', 'inv'].every((a) => acct(a).owner === ''),
+    JSON.stringify({ pid, accounts: st.accounts }));
+  check(`acctOrder lists the five accounts (${label})`, String(st.acctOrder) === 'jchk,mchk,jsav,msav,inv', `acctOrder: ${JSON.stringify(st.acctOrder)}`);
+  check(`every income is Person 1’s and lands where the scenario deposited it (${label})`, !!pid &&
+    st.scenarios.every((s, i) => s.incomes.every((x) => x.who === pid && x.to === src.scenarios[i].depositTo)), `person ${pid}: ${scns}`);
+  check(`every scenario splits by take-home (${label})`,
+    st.scenarios.every((s) => !!s.split && s.split.mode === 'income' && isDeepStrictEqual(s.split.pct, {})), scns);
+}
+
 section('migration', async () => {
-  const fx = JSON.parse(fs.readFileSync(FIXTURE_V1, 'utf8'));
-  const withExtra = Object.assign({}, fx, { state: Object.assign({}, fx.state, { extra: { a: 1 } }) });
-  const f = path.join(TMP, 'v1.json');
-  fs.writeFileSync(f, JSON.stringify(withExtra));
-  const { ctx, page } = await openPage({});
-  await page.setInputFiles('#import-file', f);
-  await page.locator('[data-act="import-confirm"]').click();
-  const st = await page.evaluate(() => window.__hbp.state());
-  check('v1 file imports as v2', st.v === 2 && st.cats.length === 0 && st.checkins.length === 0 && st.fund.acct === '' && st.fund.saved === 0);
-  check('unknown fields are kept', isDeepStrictEqual(st.extra, { a: 1 }));
   const lines = (s) => s.scenarios.flatMap((x) => x.lines);
+  // Imports `state` as a plan file of version `v` into a fresh profile and returns the plan the app then holds.
+  const importInto = async (v, state) => {
+    const f = path.join(TMP, `v${v}.json`);
+    fs.writeFileSync(f, JSON.stringify({ app: APP_ID, v, exportedAt: new Date().toISOString(), exportedBy: '', state }));
+    const { ctx, page } = await openPage({});
+    await page.setInputFiles('#import-file', f);
+    await page.locator('[data-act="import-confirm"]').click();
+    const st = await page.evaluate(() => window.__hbp.state());
+    await ctx.close();
+    return st;
+  };
+  const stored = (page, k) => page.evaluate((key) => localStorage.getItem(key), k);
+  const storedV = async (page) => JSON.parse(await stored(page, PLAN_KEY)).v;
+
+  const fx = JSON.parse(fs.readFileSync(FIXTURE_V1, 'utf8'));
+  const st = await importInto(1, Object.assign({}, fx.state, { extra: { a: 1 } }));
+  check(`v1 file imports as v${DATA_VERSION}`, st.v === DATA_VERSION && st.cats.length === 0 && st.checkins.length === 0 && st.fund.acct === '' && st.fund.saved === 0,
+    JSON.stringify({ v: st.v, cats: st.cats, checkins: st.checkins, fund: st.fund }));
+  check('unknown fields are kept', isDeepStrictEqual(st.extra, { a: 1 }));
   check('every v1 line keeps its fields', lines(fx.state).length === lines(st).length &&
     lines(fx.state).every((l, i) => ['id', 'g', 'name', 'amt', 'f', 'acct'].every((k) => isDeepStrictEqual(lines(st)[i][k], l[k]))));
   check('need/want lines get cat and due', lines(st).filter((l) => l.g !== 'save').every((l) => l.cat === '' && l.due === 0));
   check('goals get an empty by', lines(st).filter((l) => l.goal).every((l) => l.goal.by === ''));
-  await ctx.close();
+  upgradeChecks('v1 file', st, fx.state);
+
+  // A v2 file gains only the fields the upgrade adds; everything else, unknown fields included, is as it was.
+  const src2 = Object.assign({}, oldPlan(), { extra: { a: 1 } });
+  const st2 = await importInto(2, src2);
+  check(`v2 file imports as v${DATA_VERSION}`, st2.v === DATA_VERSION, `v ${st2.v}`);
+  upgradeChecks('v2 file', st2, src2);
+  const rest = withoutSyncFields(st2), was = withoutSyncFields(src2);
+  delete rest.v; delete was.v; delete rest.people; delete rest.acctOrder;
+  Object.keys(rest.accounts).forEach((a) => { delete rest.accounts[a].kind; delete rest.accounts[a].owner; });
+  rest.scenarios.forEach((s) => { delete s.split; s.incomes.forEach((x) => { delete x.who; delete x.to; }); });
+  const differ = Object.keys(Object.assign({}, rest, was)).filter((k) => !isDeepStrictEqual(rest[k], was[k]));
+  check('everything else in a v2 file is unchanged', differ.length === 0, `differs: ${differ.join(', ')}`);
 
   const raw = JSON.stringify(fx.state);
   const b = await openPage({ storage: { [PLAN_KEY]: raw } });
-  check('stored v1 plan migrates on load', (await b.page.evaluate((k) => JSON.parse(localStorage.getItem(k)).v, PLAN_KEY)) === 2);
-  check('stored v1 plan is backed up', (await b.page.evaluate((k) => localStorage.getItem(k), BACKUP_KEY)) === raw);
+  const v1 = await storedV(b.page);
+  check('stored v1 plan migrates on load', v1 === DATA_VERSION, `stored v ${v1}`);
+  check('stored v1 plan is backed up', (await stored(b.page, backupKey(1))) === raw);
   const m = await b.page.evaluate(() => [window.__hbp.prevMonth(new Date(2027, 0, 15)), window.__hbp.monthKey(window.__hbp.monthIndex('2026-12') + 1)]);
   check('months roll over the year', m[0] === '2026-12' && m[1] === '2027-01', JSON.stringify(m));
   await b.ctx.close();
 
+  const raw2 = JSON.stringify(oldPlan());
+  const d = await openPage({ storage: { [PLAN_KEY]: raw2 } });
+  const v2 = await storedV(d.page);
+  check('stored v2 plan migrates on load', v2 === DATA_VERSION, `stored v ${v2}`);
+  const bk = { v2: await stored(d.page, backupKey(2)), v1: await stored(d.page, backupKey(1)) };
+  check('stored v2 plan is backed up under the v2 key', bk.v2 === raw2 && bk.v1 === null,
+    `v2 key ${bk.v2 === raw2 ? 'holds the stored plan' : bk.v2 === null ? 'is empty' : 'holds something else'}, v1 key ${bk.v1 === null ? 'is empty' : 'is written'}`);
+
+  // A stored v2 plan whose upgrade fails is still backed up under the v2 key, even on a device whose v1 key
+  // already holds a backup from an earlier upgrade; that earlier backup is never written over.
+  const badRaw = JSON.stringify(Object.assign(oldPlan(), { accounts: [] }));
+  const e = await openPage({ storage: { [PLAN_KEY]: badRaw, [backupKey(1)]: 'earlier v1 backup' } });
+  const ebk = { v2: await stored(e.page, backupKey(2)), v1: await stored(e.page, backupKey(1)) };
+  check('a stored v2 plan that can’t be upgraded is backed up under the v2 key, keeping an earlier v1 backup',
+    ebk.v2 === badRaw && ebk.v1 === 'earlier v1 backup',
+    `v2 key ${ebk.v2 === badRaw ? 'holds the stored plan' : ebk.v2 === null ? 'is empty' : 'holds something else'}, v1 key ${ebk.v1 === 'earlier v1 backup' ? 'unchanged' : 'changed'}`);
+  await e.ctx.close();
+
+  // Equivalence: the v2 rule, computed here. Each account but the landing one receives the monthly sum of the lines
+  // assigned to it (yearly need/want lines go to the fund account while the fund is on); the rest stays where pay lands.
+  const old = oldPlan();
+  const K = { mo: 1, wk: 52 / 12, yr: 1 / 12 };
+  for (const s of old.scenarios) {
+    const by = {};
+    s.lines.forEach((l) => {
+      const a = old.fund.acct && l.f === 'yr' && (l.g === 'need' || l.g === 'want') ? old.fund.acct : l.acct;
+      by[a] = (by[a] || 0) + Math.max(0, Number(l.amt) || 0) * (K[l.f] || 1);
+    });
+    const I = s.incomes.reduce((sum, x) => sum + Math.max(0, Number(x.amt) || 0), 0);
+    const items = ['jchk', 'mchk', 'jsav', 'msav', 'inv'].filter((a) => a !== s.depositTo && (by[a] || 0) > 0.5).map((a) => ({ a, amt: by[a] }));
+    const expKeep = I - items.reduce((sum, x) => sum + x.amt, 0);
+    const exp = { land: s.depositTo, items, keep: expKeep };
+    const t = await d.page.evaluate((id) => (window.__hbp.transfers ? window.__hbp.transfers(id) : null), s.id);
+    const sameItems = !!t && t.land === exp.land && t.items.length === items.length &&
+      t.items.every((x, k) => x.a === items[k].a && Math.abs(x.amt - items[k].amt) < 1e-9);
+    check(`an upgraded scenario’s payday plan is unchanged (${s.id})`, sameItems && Math.abs(t.keep - expKeep) < 1e-9, JSON.stringify({ t, exp }));
+  }
+
+  // What the app adds to an upgraded plan keeps it loadable: an income needs a person and an account, a scenario a split.
+  await d.page.click('[data-act="add-inc"]');
+  await d.page.click('[data-act="new-scn"]');
+  await until(d.page, (k) => { try { return JSON.parse(localStorage.getItem(k)).scenarios.length === 3; } catch (e) { return false; } }, PLAN_KEY);
+  await d.page.reload({ waitUntil: 'networkidle' });
+  const back = await d.page.evaluate(() => { const s = window.__hbp.state(); return { scenarios: s.scenarios.length, incomes: s.scenarios[0].incomes.length }; });
+  check('an income and a scenario added after the upgrade still load after a reload', back.scenarios === 3 && back.incomes === 3, JSON.stringify(back));
+  await d.ctx.close();
+
   const c = await openPage({});
   const ex = await c.page.evaluate(() => window.__hbp.state());
   const car = lines(ex).find((l) => l.name === 'Car registration & maintenance');
-  check('example plan is v2 with six categories and the fund on',
-    ex.v === 2 && ex.cats.length === 6 && ex.fund.acct === 'jsav' && car && car.due === 3 && !!car.cat,
-    JSON.stringify({ v: ex.v, cats: ex.cats && ex.cats.length, fund: ex.fund }));
+  const gifts = lines(ex).find((l) => l.name === 'Gifts & holidays');
+  check('the example is one generic scenario with two people, pooled',
+    ex.v === 3 && ex.scenarios.length === 1 && ex.scenarios[0].name === 'Example' && ex.people.map((p) => p.name).join() === 'Alex,Sam' &&
+    ex.cats.length === 6 && ex.accounts[ex.fund.acct].name === 'Joint savings' && car && car.due === 3 && !!car.cat && gifts && gifts.due === 12 &&
+    new Set(ex.scenarios[0].incomes.map((x) => x.to)).size === 1, JSON.stringify({ n: ex.scenarios.length, people: ex.people }));
   await c.ctx.close();
 });
 
@@ -319,7 +445,7 @@ const lineId = (page, name) => page.evaluate((n) => {
 const catId = (page, name) => page.evaluate((n) => { const c = window.__hbp.state().cats.find((x) => x.name === n); return c && c.id; }, name);
 
 section('categories', async () => {
-  const { ctx, page } = await openPage({});
+  const { ctx, page } = await openPage({ storage: OLD() });
   let rows = await hdRows(page);
   const bills = rows.find((r) => r.name === 'Bills & utilities');
   check('Honeydue list has a Bills & utilities row of $360', !!bills && bills.amt === '$360 / mo', JSON.stringify(bills));
@@ -352,7 +478,7 @@ section('categories', async () => {
     rows.some((r) => r.name === 'Groceries & household supplies' && r.amt === '$600 / mo') && !offered, JSON.stringify(rows.map((r) => r.name)));
   await ctx.close();
 
-  const phone = await openPage({ viewport: { width: 390, height: 844 } });
+  const phone = await openPage({ storage: OLD(), viewport: { width: 390, height: 844 } });
   const firstCat = await phone.page.evaluate(() => window.__hbp.state().cats[0].id);
   await phone.page.fill(`#cn-${firstCat}`, 'W'.repeat(60));
   const overflow = await phone.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -365,7 +491,7 @@ const values = (page, sel) => page.$$eval(sel, (els) => els.map((e) => e.value))
 const countText = (page, sel, text) => page.$$eval(sel, (els, t) => els.filter((e) => e.textContent.includes(t)).length, text);
 
 section('checkin', async () => {
-  const { ctx, page } = await openPage({ date: '2026-11-16T12:00' });
+  const { ctx, page } = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
   const head = () => page.locator('[data-tour="checkin"] h2').innerText();
   check('a due check-in names last month', (await head()).includes('October check-in'), await head());
   const summary = () => page.locator('#summary').innerText();
@@ -419,7 +545,7 @@ section('checkin', async () => {
 });
 
 section('goals', async () => {
-  const { ctx, page } = await openPage({ date: '2026-11-16T12:00' });
+  const { ctx, page } = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
   const r = await page.evaluate(() => {
     const h = window.__hbp;
     return [
@@ -469,7 +595,7 @@ const stepText = (page, acct) => page.evaluate((a) => {
 }, acct);
 
 section('yearly', async () => {
-  const { ctx, page } = await openPage({ date: '2026-11-16T12:00' });
+  const { ctx, page } = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
   const bills = [{ name: 'Car', amt: 600, due: 3 }, { name: 'Gifts', amt: 800, due: 12 }];
   const p = await page.evaluate((b) => [window.__hbp.projectFund(0, '2026-10', 1400 / 12, b), window.__hbp.projectFund(117, '2026-10', 1400 / 12, b)], bills);
   check('fund: first-year shortfall', Math.abs(p[0].S - 816.67) < 0.01 && p[0].minKey === '2027-03' &&
@@ -510,7 +636,7 @@ section('yearly', async () => {
   await ctx.close();
 
   // A bill bigger than what's in the fund leaves it at $0 (the rest is paid from checking), never at a negative balance.
-  const d = await openPage({ date: '2026-12-10T12:00' });
+  const d = await openPage({ storage: OLD(), date: '2026-12-10T12:00' });
   await d.page.selectOption('#ci-month', '2026-12'); // the $800 December bill, $117 set aside, nothing saved yet
   await d.page.click('[data-act="ci-start"]');
   const fb = () => d.page.evaluate(() => window.__hbp.state().checkins[0].fund.balance);
@@ -543,12 +669,17 @@ section('tour', async () => {
   check('"Not now" stops the offer on this device', !(await page.locator('#banner').innerText()).includes('New here?'));
 
   await page.click('#tour-btn');
-  check('the Tour button opens step 1 of 17', (await page.locator('#tour').isVisible()) && (await page.locator('#tour').innerText()).includes('1 of 17'));
-  const missed = [];
-  for (let i = 2; i <= 17; i++) {
+  check('the Tour button opens step 1 of 18', (await page.locator('#tour').isVisible()) && (await page.locator('#tour').innerText()).includes('1 of 18'));
+  const missed = [], texts = [], titles = [];
+  const grab = async () => { texts.push(await page.locator('#tour-text').innerText()); titles.push(await page.locator('#tour-title').innerText()); };
+  await grab();
+  for (let i = 2; i <= 18; i++) {
     await page.keyboard.press('ArrowRight');
     if (!(await tourStepShown(page))) missed.push(i);
+    await grab();
   }
+  check('no tour step says “line”', texts.every((t) => !/\blines?\b/i.test(t)), texts.filter((t) => /\blines?\b/i.test(t)).join(' | '));
+  check('the tour has a People step before Accounts', titles.indexOf('People') >= 0 && titles.indexOf('People') === titles.indexOf('Accounts') - 1, titles.join(' | '));
   check('every step scrolls its part into view and outlines it', missed.length === 0, `steps not shown: ${missed.join(', ')}`);
   check('the last step offers Finish', (await page.locator('#tour').innerText()).includes('Finish'));
   await page.click('#tour [data-tour-act="next"]');
@@ -565,7 +696,7 @@ section('tour', async () => {
   const ph = await openPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
   await ph.page.click('[data-act="tour-start"]');
   let worst = 0;
-  for (let i = 2; i <= 17; i++) {
+  for (let i = 2; i <= 18; i++) {
     await ph.page.keyboard.press('ArrowRight');
     await tourStepShown(ph.page);
     if (i === 8 && SHOTS) await ph.page.screenshot({ path: path.join(SHOTS, 'phone-tour.png') });
@@ -577,7 +708,7 @@ section('tour', async () => {
 });
 
 section('retake', async () => {
-  const { ctx, page } = await openPage({ date: '2026-11-16T12:00' });
+  const { ctx, page } = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
   await page.click('[data-act="ci-start"]');
   const me = await page.evaluate(() => window.__hbp.state().checkins[0].spend.findIndex((r) => r.name === 'Personal spending: me'));
   await page.fill(`#cia-${me}`, '210');
@@ -595,7 +726,7 @@ section('retake', async () => {
 
   // Re-taking keeps the fund row's months, so the bills due must be counted over those same months,
   // even after the earlier check-in it was counted from is deleted.
-  const b = await openPage({ date: '2026-11-16T12:00' });
+  const b = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
   await b.page.fill('#fund-bal', '1000');
   await b.page.click('[data-act="ci-start"]'); // October
   await b.page.waitForTimeout(500);
@@ -616,7 +747,7 @@ section('retake', async () => {
 
 // Check-in buttons that re-draw the card keep keyboard focus on a sensible control instead of dropping it to the page.
 section('focus', async () => {
-  const { ctx, page } = await openPage({ date: '2026-11-16T12:00' });
+  const { ctx, page } = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
   const focused = () => page.evaluate(() => { const a = document.activeElement; return { act: a.dataset.act || a.tagName, id: a.dataset.id, text: a.textContent.trim().slice(0, 60) }; });
   const press = async (sel) => { await page.locator(sel).focus(); await page.keyboard.press('Enter'); return focused(); };
   await page.click('[data-act="ci-start"]'); // October
@@ -646,7 +777,7 @@ section('focus', async () => {
 // A month opened from the check-in history belongs to the plan it came from: import and reset close it.
 section('resets', async () => {
   const viewingOctober = async () => {
-    const o = await openPage({ date: '2026-11-16T12:00' });
+    const o = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
     await o.page.click('[data-act="ci-start"]'); // October
     await o.page.waitForTimeout(500);
     await o.page.clock.setFixedTime(new Date('2026-12-05T12:00'));
@@ -672,7 +803,7 @@ section('resets', async () => {
 });
 
 section('first-checkin', async () => {
-  const { ctx, page } = await openPage({ date: '2026-11-16T12:00' });
+  const { ctx, page } = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
   const mv = await lineId(page, 'Move-in fund (deposit, first month, movers)');
   const ef = await lineId(page, 'Emergency fund');
   await page.selectOption(`#gbm-${mv}`, '06');
@@ -697,15 +828,45 @@ section('import-safety', async () => {
   const { ctx, page } = await openPage({});
   const good = await page.evaluate(() => JSON.parse(JSON.stringify(window.__hbp.state())));
   const variant = (fn) => { const st = JSON.parse(JSON.stringify(good)); fn(st); return st; };
+  // An own key named "__proto__" (assigning one would set the prototype instead); JSON.stringify writes it out.
+  const own = (o, k, v) => Object.defineProperty(o, k, { value: v, enumerable: true, writable: true, configurable: true });
+  const spendOf = (st) => st.acctOrder.filter((a) => st.accounts[a].kind === 'spend');
   const files = {
     'check-in without spend rows': variant((st) => { st.checkins = [{ month: '2026-10', scn: 'now', scnName: 'Now', startedAt: 0, by: '', goals: [], fund: null }]; }),
     'category id with markup': variant((st) => { st.cats[0].id = 'x"><img src=x onerror="window.__pwned=1">'; }),
     'check-in month with markup': variant((st) => { st.checkins = [{ month: '2026-13"><b>', scn: 'now', scnName: 'Now', startedAt: 0, by: '', spend: [], goals: [], fund: null }]; }),
+    'no people': variant((st) => { st.people = []; }),
+    'person id with markup': variant((st) => { st.people[0].id = 'x"><b>'; }),
+    'account id with markup': variant((st) => { st.accounts['x"><b>'] = { name: 'X', note: '', kind: 'spend', owner: '' }; st.acctOrder.push('x"><b>'); }),
+    'acctOrder names a missing account': variant((st) => { st.acctOrder.push('nope'); }),
+    'no savings account': variant((st) => {
+      const sv = Object.keys(st.accounts).filter((a) => st.accounts[a].kind === 'save');
+      sv.forEach((a) => { delete st.accounts[a]; }); st.acctOrder = st.acctOrder.filter((a) => !sv.includes(a)); st.fund.acct = '';
+    }),
+    'unknown split mode': variant((st) => { st.scenarios[0].split.mode = 'half'; }),
+    // Ids are also keys of plain objects, so names every object inherits are refused.
+    'person id __proto__': variant((st) => { st.people[0].id = '__proto__'; }),
+    'person id constructor': variant((st) => { st.people[0].id = 'constructor'; }),
+    'person id toString': variant((st) => { st.people[0].id = 'toString'; }),
+    'account id constructor': variant((st) => { st.accounts.constructor = { name: 'X', note: '', kind: 'spend', owner: '' }; st.acctOrder.push('constructor'); }),
+    'account id __proto__': variant((st) => { own(st.accounts, '__proto__', { name: 'X', note: '', kind: 'save', owner: '' }); st.acctOrder.push('__proto__'); }),
+    'split percentage keyed __proto__': variant((st) => { own(st.scenarios[0].split.pct, '__proto__', 50); }),
+    'split percentage keyed toString': variant((st) => { st.scenarios[0].split.pct.toString = 50; }),
+    'an account listed twice in acctOrder': variant((st) => { st.acctOrder.push(st.acctOrder[0]); }),
+    'two people with one id': variant((st) => { st.people.push({ id: st.people[0].id, name: 'Twin' }); }),
+    'income who with markup': variant((st) => { st.scenarios[0].incomes[0].who = 'x"><b>'; }),
+    'income to with markup': variant((st) => { st.scenarios[0].incomes[0].to = 'x"><b>'; }),
+    'split percentage key with markup': variant((st) => { st.scenarios[0].split.pct['x"><b>'] = 10; }),
+    'no spending account': variant((st) => {
+      const sp = spendOf(st);
+      sp.forEach((a) => { delete st.accounts[a]; }); st.acctOrder = st.acctOrder.filter((a) => !sp.includes(a));
+    }),
+    'yearly-costs fund in a spending account': variant((st) => { st.fund.acct = spendOf(st)[0]; }),
   };
   for (const [name, st] of Object.entries(files)) {
     await page.reload({ waitUntil: 'networkidle' });
     const f = path.join(TMP, 'bad.json');
-    fs.writeFileSync(f, JSON.stringify({ app: APP_ID, v: 2, exportedAt: new Date().toISOString(), exportedBy: '', state: st }));
+    fs.writeFileSync(f, JSON.stringify({ app: APP_ID, v: DATA_VERSION, exportedAt: new Date().toISOString(), exportedBy: '', state: st }));
     await page.setInputFiles('#import-file', f);
     const refused = await bannerHas(page, 'isn’t a budget plan file');
     check(`a malformed file is refused (${name})`, refused && (await page.locator('[data-act="import-confirm"]').count()) === 0);
@@ -721,7 +882,7 @@ section('import-safety', async () => {
 });
 
 section('scenarios', async () => {
-  const { ctx, page } = await openPage({});
+  const { ctx, page } = await openPage({ storage: OLD() });
   const st = () => page.evaluate(() => window.__hbp.state());
   const ids = async () => (await st()).scenarios.map((x) => x.id).join();
   const del = (id) => page.locator(`[data-act="del-scn"][data-id="${id}"]`);
@@ -757,7 +918,7 @@ section('scenarios', async () => {
   await ctx.close();
 
   for (const scheme of ['light', 'dark']) {
-    const ph = await openPage({ viewport: { width: 390, height: 844 }, colorScheme: scheme });
+    const ph = await openPage({ storage: OLD(), viewport: { width: 390, height: 844 }, colorScheme: scheme });
     for (let i = 0; i < 3; i++) await ph.page.click('[data-act="new-scn"]');
     await ph.page.locator('[data-act="del-scn"]').nth(1).click();
     const overflow = await ph.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -765,6 +926,184 @@ section('scenarios', async () => {
     if (SHOTS) await ph.page.locator('#tabs').screenshot({ path: path.join(SHOTS, `phone-scenarios-${scheme}.png`) });
     await ph.ctx.close();
   }
+});
+
+// A small current-version plan: one person, one shared spending and one shared savings account, one empty scenario.
+// `edit` changes it before it is stored.
+function minPlan(edit) {
+  const p = {
+    v: DATA_VERSION, touched: true, modifiedAt: 0, lastSync: null, active: 'm',
+    people: [{ id: 'p1', name: 'Solo' }],
+    accounts: { c: { name: 'Checking', note: '', kind: 'spend', owner: '' }, s: { name: 'Savings', note: '', kind: 'save', owner: '' } },
+    acctOrder: ['c', 's'], fund: { acct: '', saved: 0 }, cats: [], checkins: [],
+    scenarios: [{ id: 'm', name: 'Mine', sub: '', depositTo: 'c', split: { mode: 'income', pct: {} }, incomes: [], lines: [] }],
+  };
+  if (edit) edit(p);
+  return { [PLAN_KEY]: JSON.stringify(p) };
+}
+const acctGroups = (page) => page.$$eval('[data-tour="accounts"] .acct-group h3', (els) => els.map((e) => e.textContent.trim()));
+const loadedScn = (page) => page.evaluate(() => window.__hbp.state().scenarios[0].id);
+
+section('accounts', async () => {
+  const { ctx, page } = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
+  const st = () => page.evaluate(() => window.__hbp.state());
+  const focused = () => page.evaluate(() => document.activeElement.id);
+  let groups = await acctGroups(page);
+  check('accounts are grouped by owner', groups.join() === 'Shared,Person 1', groups.join());
+  const ef = await lineId(page, 'Emergency fund');
+  const og = await page.$$eval(`#c-${ef} optgroup`, (els) => els.map((g) => `${g.label}:${Array.from(g.querySelectorAll('option')).map((o) => o.value).join('+')}`));
+  check('a savings item offers savings accounts grouped by owner', og.join() === 'Shared:jsav+inv,Person 1:msav', og.join());
+  check('the fund can only go to a savings account', (await values(page, '#fund-acct option')).join() === ',jsav,inv,msav', (await values(page, '#fund-acct option')).join());
+  check('an account in use has no ×', (await page.locator('[data-act="del-acct"][data-id="jchk"]').count()) === 0 && (await cardText(page, 'accounts')).includes('used by'));
+  // Pay lands in "My checking · Person 1": a label that long is shortened to fit the diagram (the steps show it in full).
+  const runOver = await page.$$eval('.flow svg text', (els) => els.filter((t) => t.getBBox().x + t.getBBox().width > t.ownerSVGElement.viewBox.baseVal.width + 0.5).map((t) => t.textContent));
+  check('the payday diagram’s labels fit inside it', runOver.length === 0 && (await page.locator('.steps').innerText()).includes('Keep in My checking · Person 1'), JSON.stringify(runOver));
+  const tips = await page.$$eval('.flow svg text.flow-l', (els) => els.filter((t) => t.querySelector('title')).map((t) => ({ tip: t.querySelector('title').textContent, shown: t.lastChild.textContent })));
+  check('a shortened diagram label has its full text as a tooltip',
+    tips.some((x) => x.tip === 'Stays in My checking · Person 1' && x.shown.endsWith('…')), JSON.stringify(tips));
+
+  await page.click('[data-act="add-acct"][data-kind="spend"]');
+  let s = await st();
+  const id = s.acctOrder[s.acctOrder.length - 1];
+  const acct = s.accounts[id] || {};
+  const active = await focused();
+  check('"+ Add spending account" adds a shared spending account and focuses its name',
+    acct.kind === 'spend' && acct.owner === '' && acct.name === 'New checking' && active === `an-${id}`, JSON.stringify({ id, acct, active }));
+  const internet = await lineId(page, 'Internet');
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('Bills <b>card</b>');
+  const typed = await page.evaluate(([a, l]) => {
+    const o = document.querySelector(`#c-${l} option[value="${a}"]`);
+    return { id: document.activeElement.id, value: document.activeElement.value, option: o ? o.textContent : null };
+  }, [id, internet]);
+  check('renaming an account keeps focus and renames it in the item menus',
+    typed.id === `an-${id}` && typed.value === 'Bills <b>card</b>' && typed.option === 'Bills <b>card</b>', JSON.stringify(typed));
+
+  await page.click(`[data-act="del-acct"][data-id="${id}"]`);
+  check('one click on an account’s × only asks', !!(await st()).accounts[id] && (await focused()) === `da-${id}`, await focused());
+  await page.click(`[data-act="del-acct"][data-id="${id}"]`);
+  s = await st();
+  check('an unused account is removed with two clicks', !s.accounts[id] && !s.acctOrder.includes(id), JSON.stringify(s.acctOrder));
+
+  await page.click('[data-act="add-acct"][data-kind="save"]');
+  s = await st();
+  const sv = s.accounts[s.acctOrder[s.acctOrder.length - 1]] || {};
+  check('"+ Add savings account" adds a shared savings account named "New savings"', sv.kind === 'save' && sv.owner === '' && sv.name === 'New savings', JSON.stringify(sv));
+
+  await page.selectOption('#aw-jsav', s.people[0].id);
+  check('a new owner shows in the payday plan', (await stepText(page, 'Joint savings · Person 1')) !== '');
+  groups = await page.$$eval('[data-tour="accounts"] .acct-group', (els) => els.map((g) => `${g.querySelector('h3').textContent}:${Array.from(g.querySelectorAll('input[data-field="name"]')).map((i) => i.dataset.id).join('+')}`));
+  check('changing an owner moves the account to that person and keeps focus on its owner menu',
+    groups.some((g) => g.startsWith('Person 1:') && g.includes('jsav')) && (await focused()) === 'aw-jsav', `${groups.join()} | ${await focused()}`);
+
+  await page.click('[data-act="ci-start"]'); // October
+  await page.click('#an-jsav');
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('Rainy day');
+  const tag = await page.evaluate(() => ({ text: document.querySelector('[data-tour="checkin"] [data-acct-label="jsav"]').textContent, focus: document.activeElement.id }));
+  check('renaming an account renames its label in the check-in as you type', tag.text === 'Rainy day · Person 1' && tag.focus === 'an-jsav', JSON.stringify(tag));
+  // The check-in keeps the account its goals were saved in, even after that account is removed.
+  for (const tab of ['now', 'later']) {
+    await page.click(`#tabs [data-act="tab"][data-id="${tab}"]`);
+    await page.selectOption(`#c-${await lineId(page, 'Fun & vacation')}`, 'jsav');
+  }
+  await page.click('[data-act="del-acct"][data-id="msav"]'); // its × shows as soon as its last item moves off
+  await page.click('[data-act="del-acct"][data-id="msav"]');
+  const ci = await cardText(page, 'checkin');
+  check('a check-in naming a removed account says "Deleted account"',
+    !(await st()).accounts.msav && ci.includes('Deleted account') && !ci.includes('msav'), ci.slice(0, 300));
+  await ctx.close();
+
+  const m = await openPage({ storage: minPlan() });
+  check('the last spending and the last savings account cannot be removed',
+    (await loadedScn(m.page)) === 'm' && (await m.page.locator('[data-act="del-acct"]').count()) === 0);
+  await m.ctx.close();
+
+  const g = await openPage({ storage: minPlan((p) => { p.accounts.s.owner = 'ghost'; }) });
+  groups = await acctGroups(g.page);
+  check('an account whose owner is gone is listed as shared', (await loadedScn(g.page)) === 'm' && groups.join() === 'Shared', groups.join());
+  await g.ctx.close();
+
+  // An item's account is not checked on load, so it may name one that doesn't exist, even with markup in it.
+  const bad = 'gone"><i id="pwn">x</i>';
+  const d = await openPage({ storage: minPlan((p) => { p.scenarios[0].lines.push({ id: 'l1', g: 'need', name: 'Rent', amt: 100, f: 'mo', acct: bad, cat: '', due: 0 }); }) });
+  const shown = await d.page.evaluate(() => { const sel = document.getElementById('c-l1'); return sel ? { value: sel.value, text: sel.selectedOptions[0].textContent } : null; });
+  check('an item naming a missing account shows "Deleted account" and keeps its value',
+    (await loadedScn(d.page)) === 'm' && !!shown && shown.value === bad && shown.text === 'Deleted account' &&
+    (await d.page.evaluate(() => !document.getElementById('pwn'))), JSON.stringify(shown));
+  await d.ctx.close();
+
+  // The card follows an item's account as it changes, with no tab switch or reload in between.
+  const u = await openPage({ storage: minPlan((p) => {
+    p.accounts.c2 = { name: 'Bills', note: '', kind: 'spend', owner: '' };
+    p.acctOrder.splice(1, 0, 'c2');
+    p.scenarios[0].lines.push({ id: 'l1', g: 'need', name: 'Rent', amt: 100, f: 'mo', acct: 'c2', cat: '', due: 0 });
+  }) });
+  const end = (a) => u.page.evaluate((x) => document.getElementById(`an-${x}`).closest('.acct-row').querySelector('.a-d').textContent.trim(), a);
+  const before = [await end('c'), await end('c2')];
+  await u.page.selectOption('#c-l1', 'c');
+  const after = { c: await end('c'), c2: await end('c2'), focus: await u.page.evaluate(() => document.activeElement.id) };
+  check('moving an item off an account shows its × at once, and keeps focus on the item’s menu',
+    (await loadedScn(u.page)) === 'm' && before.join() === '×,used by 1' && after.c === 'used by 1' && after.c2 === '×' && after.focus === 'c-l1',
+    JSON.stringify({ before, after }));
+  await u.page.click('[data-act="del-acct"][data-id="c2"]');
+  const armed = await end('c2');
+  await u.page.selectOption('#c-l1', 'c2');
+  const used = await end('c2');
+  await u.page.selectOption('#c-l1', 'c');
+  const freed = await end('c2');
+  check('an account armed for removal that becomes used is disarmed', armed === 'Remove?' && used === 'used by 1' && freed === '×',
+    JSON.stringify({ armed, used, freed }));
+  await u.ctx.close();
+
+  // The owner's name is left out of a label only when the account's name has it as a whole word (any case).
+  const wl = await openPage({ storage: minPlan((p) => {
+    p.people = [{ id: 'p1', name: 'Ed' }, { id: 'p2', name: 'Alex' }, { id: 'p3', name: 'Kim (K)' }];
+    p.accounts.s = { name: 'Shared savings', note: '', kind: 'save', owner: 'p1' };
+    p.accounts.a = { name: 'Alex checking', note: '', kind: 'spend', owner: 'p2' };
+    p.accounts.k = { name: 'kim (k) card', note: '', kind: 'spend', owner: 'p3' };
+    p.acctOrder.push('a', 'k');
+    p.scenarios[0].incomes.push({ id: 'i1', name: 'Pay', amt: 1000, who: 'p1', to: 'c' });
+    p.scenarios[0].lines.push({ id: 'l1', g: 'save', name: 'Saving', amt: 100, f: 'mo', acct: 's' },
+      { id: 'l2', g: 'need', name: 'Bills', amt: 100, f: 'mo', acct: 'a', cat: '', due: 0 },
+      { id: 'l3', g: 'want', name: 'Fun', amt: 50, f: 'mo', acct: 'k', cat: '', due: 0 });
+  }) });
+  const steps = await wl.page.$$eval('.steps li > span:first-child', (els) => els.map((e) => e.textContent));
+  check('an owner’s name is left out of a label only when the account’s name has it as a whole word',
+    (await loadedScn(wl.page)) === 'm' && isDeepStrictEqual(steps, ['Move to Shared savings · Ed', 'Move to Alex checking', 'Move to kim (k) card', 'Keep in Checking']),
+    JSON.stringify(steps));
+  await wl.ctx.close();
+
+  // The example has two accounts named "Checking": a closed menu has to say whose it is, since in separate pay that decides who pays.
+  const ex = await openPage({});
+  const exs = await ex.page.evaluate(() => window.__hbp.state());
+  const alex = exs.people[0].id, jchk = exs.acctOrder[0], achk = exs.acctOrder.find((a) => exs.accounts[a].owner === alex);
+  const mine = await lineId(ex.page, 'Personal spending: Alex'), rent = await lineId(ex.page, 'Rent or mortgage');
+  const closed = (l) => ex.page.evaluate((x) => document.getElementById(`c-${x}`).selectedOptions[0].textContent, l);
+  const typedIn = async () => ({ text: await closed(mine), focus: await ex.page.evaluate(() => document.activeElement.id) });
+  check('a closed account menu says whose account it is', (await closed(mine)) === 'Checking · Alex', await closed(mine));
+  await ex.page.click(`#pn-${alex}`);
+  await ex.page.keyboard.press('Control+A');
+  await ex.page.keyboard.type('Al');
+  let seen = await typedIn();
+  check('renaming the owner renames it in closed menus as you type, keeping focus', seen.text === 'Checking · Al' && seen.focus === `pn-${alex}`, JSON.stringify(seen));
+  await ex.page.click(`#an-${achk}`);
+  await ex.page.keyboard.press('Control+A');
+  await ex.page.keyboard.type('Everyday');
+  seen = await typedIn();
+  check('renaming the account keeps its owner in closed menus, keeping focus', seen.text === 'Everyday · Al' && seen.focus === `an-${achk}`, JSON.stringify(seen));
+  // An account with no name: its input stays empty, and every label and menu says "Untitled account".
+  await ex.page.fill(`#an-${jchk}`, '');
+  await ex.page.fill(`#an-${achk}`, '');
+  const blank = async () => ({ rent: await closed(rent), mine: await closed(mine), value: await ex.page.inputValue(`#an-${jchk}`), pay: await cardText(ex.page, 'transfers') });
+  let un = await blank();
+  check('an account with no name shows as "Untitled account" as you type',
+    un.rent === 'Untitled account' && un.mine === 'Untitled account · Al' && un.value === '' &&
+    un.pay.includes('Keep in Untitled account') && un.pay.includes('Move to Untitled account · Al'), JSON.stringify(un));
+  await ex.page.click('[data-act="add-acct"][data-kind="save"]'); // draws every menu again
+  un = await blank();
+  check('and when its menus are drawn again', un.rent === 'Untitled account' && un.mine === 'Untitled account · Al' && un.value === '', JSON.stringify(un));
+  await ex.ctx.close();
 });
 
 // Two windows of the app on one device share localStorage. Opens both in one browser context.
@@ -785,6 +1124,277 @@ async function editAndSave(page, value) {
   await until(page, ([k, v]) => (localStorage.getItem(k) || '').includes(`"amt":${v}`), [PLAN_KEY, value]);
 }
 
+section('people', async () => {
+  const { ctx, page } = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
+  const st = () => page.evaluate(() => window.__hbp.state());
+  const focused = () => page.evaluate(() => document.activeElement.id);
+  check('an upgraded plan asks for the household’s names', await bannerHas(page, 'add the people in your household'));
+  let s = await st();
+  const p1 = s.people[0].id;
+  await page.click('[data-act="goto-people"]');
+  check('"Go to People" focuses the first name and closes the banner', (await focused()) === `pn-${p1}` && !(await page.locator('#banner').innerText()).includes('add the people'));
+  check('with one person there is no ×', (await page.locator('[data-act="del-person"]').count()) === 0);
+  const fun = await lineId(page, 'Fun & vacation');
+  const totals = (x) => x.scenarios.map((sc) => sc.incomes.reduce((a, i) => a + i.amt, 0));
+  const totalsBefore = totals(s);
+
+  await page.click('[data-act="add-person"]');
+  s = await st();
+  const p2 = s.people[1] && s.people[1].id;
+  check('"+ Add person" adds Person 2 and focuses its name', s.people.length === 2 && s.people[1].name === 'Person 2' && (await focused()) === `pn-${p2}`, JSON.stringify(s.people));
+  await page.selectOption('#aw-msav', p2);
+  await page.click(`#pn-${p2}`);
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('Sam');
+  const focus = await page.evaluate(() => ({ id: document.activeElement.id, value: document.activeElement.value }));
+  check('typing a name keeps focus and every keystroke', focus.id === `pn-${p2}` && focus.value === 'Sam', JSON.stringify(focus));
+  check('menus follow the new name while typing', (await page.$eval(`#c-${fun} optgroup[data-person="${p2}"]`, (e) => e.label)) === 'Sam');
+  const tagOf = () => page.locator(`[data-goal="${fun}"] .tag`).innerText();
+  check('labels follow it too', (await tagOf()) === 'My savings · Sam', await tagOf());
+  check('the owner menus follow it', (await page.$eval(`#aw-jchk option[value="${p2}"]`, (e) => e.textContent)) === 'Sam');
+  check('the whose menus follow it too', (await page.$eval(`select[data-field="who"] option[value="${p2}"]`, (e) => e.textContent)) === 'Sam');
+
+  await page.click(`[data-act="del-person"][data-id="${p1}"]`);
+  const armedText = await page.locator(`[data-act="del-person"][data-id="${p1}"]`).innerText();
+  const armedTitle = await page.locator(`[data-act="del-person"][data-id="${p1}"]`).getAttribute('aria-label');
+  check('the first click only asks, and says what will happen', (await st()).people.length === 2 && (armedTitle + armedText).includes('Click again') && (armedTitle + armedText).includes('Sam'), armedTitle + '|' + armedText);
+  await page.click(`[data-act="del-person"][data-id="${p1}"]`);
+  s = await st();
+  check('removing a person makes their accounts shared and gives their pay to the next person',
+    s.people.length === 1 && s.accounts.mchk.owner === '' && s.scenarios.every((x) => x.incomes.every((i) => i.who === p2)) &&
+    isDeepStrictEqual(totals(s), totalsBefore), JSON.stringify(s.people));
+  check('with one person left there is no × again', (await page.locator('[data-act="del-person"]').count()) === 0);
+
+  // Review Focus 1
+  await page.fill(`#pn-${p2}`, '<u>x</u>');
+  const tag = await tagOf();
+  check('a name is shown as text, never as markup', (await page.locator('#root u').count()) === 0 && tag.includes('<u>x</u>'), tag);
+  await page.fill(`#pn-${p2}`, '');
+  check('an empty name shows as "Person 1"', (await tagOf()) === 'My savings · Person 1', await tagOf());
+  await ctx.close();
+
+  const b = await openPage({});
+  await b.page.setInputFiles('#import-file', FIXTURE_V1);
+  await b.page.click('[data-act="import-confirm"]');
+  check('importing an older file says so and asks for names', await bannerHas(b.page, 'Imported the plan') && await bannerHas(b.page, 'add the people'));
+  await b.page.click('[data-act="banner-close"]');
+  check('Dismiss closes the banner', (await b.page.locator('#banner').innerText()).trim() === '');
+  await b.ctx.close();
+});
+
+section('income', async () => {
+  const { ctx, page } = await openPage({ storage: OLD(), date: '2026-11-16T12:00' });
+  const st = () => page.evaluate(() => window.__hbp.state());
+  let s = await st();
+  const p1 = s.people[0].id;
+  const now = s.scenarios.find((x) => x.id === 'now');
+  const ids = now.incomes.map((x) => x.id);
+  const whoVals = await Promise.all(ids.map((i) => page.inputValue(`#iw-${i}`)));
+  const toVals = await Promise.all(ids.map((i) => page.inputValue(`#it-${i}`)));
+  check('each income says whose pay it is and where it lands', whoVals.every((v) => v === p1) && toVals.join() === 'mchk,mchk', whoVals + '|' + toVals);
+  check('there is no scenario-wide deposit select any more', (await page.locator('#scn-dep').count()) === 0);
+  check('the payday plan starts where the pay lands', (await cardText(page, 'transfers')).includes('land in My checking · Person 1'), await cardText(page, 'transfers'));
+  await page.click('[data-act="add-inc"]');
+  s = await st();
+  const ni = s.scenarios.find((x) => x.id === 'now').incomes.slice(-1)[0];
+  check('a new income goes to the same account as the others', ni.who === p1 && ni.to === 'mchk' && ni.name === 'Take-home pay' && ni.amt === 0, JSON.stringify(ni));
+  await page.selectOption(`#it-${ni.id}`, 'jchk');
+  check('the menu keeps focus after the change', (await page.evaluate(() => document.activeElement.id)) === `it-${ni.id}`);
+  check('the choice is stored', (await st()).scenarios.find((x) => x.id === 'now').incomes.slice(-1)[0].to === 'jchk');
+  check('a $0 income landing elsewhere keeps the scenario pooled', (await page.evaluate(() => window.__hbp.payMode())).pooled === true);
+  await page.fill(`#ia-${ni.id}`, '100');
+  const pm = await page.evaluate(() => window.__hbp.payMode());
+  check('with pay in it, landing in two accounts makes it separate', pm.pooled === false && pm.lands.length === 2, JSON.stringify(pm));
+  await ctx.close();
+
+  // Review Focus 3: pay set to land in a savings account
+  // A hand-edited v3 file: take the upgraded plan, point the first income at a savings account.
+  const b = await openPage({ storage: OLD() });
+  const v3 = await b.page.evaluate(() => JSON.parse(JSON.stringify(window.__hbp.state())));
+  v3.scenarios[0].incomes[0].to = 'jsav';
+  await b.page.evaluate((x) => localStorage.setItem('household-budget-planner:plan:v1', x), JSON.stringify(v3));
+  await b.page.reload({ waitUntil: 'networkidle' });
+  check('pay set to land in a savings account lands in the first spending account', (await b.page.evaluate(() => window.__hbp.payMode().land)) === 'jchk');
+  await b.ctx.close();
+
+  // An income naming a person who no longer exists is the first person's pay, in its menu and in People as in the payday plan.
+  const g = await openPage({ storage: minPlan((p) => {
+    p.people.push({ id: 'p2', name: 'Kit' });
+    p.scenarios[0].incomes.push({ id: 'i1', name: 'Pay', amt: 1000, who: 'ghost', to: 'c' });
+  }) });
+  const menu = await g.page.evaluate(() => { const sel = document.getElementById('iw-i1'); return { value: sel.value, options: Array.from(sel.options).map((o) => o.value) }; });
+  const meta = await g.page.$$eval('.person-row .p-m', (els) => els.map((e) => e.textContent));
+  check('an income whose person is gone shows as the first person’s pay in its menu and in People',
+    (await loadedScn(g.page)) === 'm' && menu.value === 'p1' && !menu.options.includes('ghost') && meta[0].includes('$1,000 take-home') && meta[1].includes('$0 take-home'),
+    JSON.stringify({ menu, meta }));
+  await g.ctx.close();
+});
+
+// Two people whose pay lands in their own checking accounts, with the yearly-costs fund on.
+// Joint checking gets N = 1000; Joint savings gets N = 500 savings + 100 (Alex's yearly) + 50 (shared yearly) = 650.
+// `edit` changes it before it is stored.
+function sepPlan(edit) {
+  const p = {
+    v: DATA_VERSION, touched: true, modifiedAt: 1, lastSync: null, active: 'sep', cats: [], checkins: [], fund: { acct: 'js', saved: 0 },
+    people: [{ id: 'pa', name: 'Alex' }, { id: 'ps', name: 'Sam' }],
+    accounts: {
+      j: { name: 'Joint checking', note: '', kind: 'spend', owner: '' }, js: { name: 'Joint savings', note: '', kind: 'save', owner: '' },
+      a1: { name: 'Checking', note: '', kind: 'spend', owner: 'pa' }, s1: { name: 'Checking', note: '', kind: 'spend', owner: 'ps' },
+    },
+    acctOrder: ['j', 'js', 'a1', 's1'],
+    scenarios: [{
+      id: 'sep', name: 'Separate', sub: '', depositTo: 'j', split: { mode: 'income', pct: {} },
+      incomes: [{ id: 'ia', name: 'Alex pay', amt: 3000, who: 'pa', to: 'a1' }, { id: 'is', name: 'Sam pay', amt: 1000, who: 'ps', to: 's1' }],
+      lines: [
+        { id: 'l1', g: 'need', name: 'Rent', amt: 1000, f: 'mo', acct: 'j', cat: '', due: 0 },
+        { id: 'l2', g: 'save', name: 'Savings', amt: 500, f: 'mo', acct: 'js' },
+        { id: 'l3', g: 'want', name: 'Alex fun', amt: 100, f: 'mo', acct: 'a1', cat: '', due: 0 },
+        { id: 'l4', g: 'want', name: 'Sam fun', amt: 50, f: 'mo', acct: 's1', cat: '', due: 0 },
+        { id: 'l5', g: 'need', name: 'Car insurance', amt: 1200, f: 'yr', acct: 'a1', cat: '', due: 0 },
+        { id: 'l6', g: 'want', name: 'Gifts', amt: 600, f: 'yr', acct: 'j', cat: '', due: 12 },
+      ],
+    }],
+  };
+  if (edit) edit(p);
+  return { [PLAN_KEY]: JSON.stringify(p) };
+}
+const near = (x, y) => Math.abs(x - y) < 0.01;
+const splitOf = (page) => page.evaluate(() => ({ sp: window.__hbp.splitPlan(), w: window.__hbp.weights() }));
+// What one person's first income moves to account a (0 if nothing).
+function mv(sp, pid, a) {
+  const p = sp && sp.people.find((x) => x.id === pid), m = p && p.incomes[0].moves.find((x) => x.a === a);
+  return m ? m.amt : 0;
+}
+const noNaN = async (page) => !/NaN|Infinity/.test(await page.locator('#root').innerText());
+
+section('separate', async () => {
+  const { ctx, page } = await openPage({ storage: sepPlan() });
+  let { sp, w } = await splitOf(page);
+  const pA = sp && sp.people.find((p) => p.id === 'pa'), pS = sp && sp.people.find((p) => p.id === 'ps');
+  const A = pA && pA.incomes[0], S = pS && pS.incomes[0];
+  check('by take-home: weights', near(w.pa, 0.75) && near(w.ps, 0.25), JSON.stringify(w));
+  check('by take-home: Alex moves 75% of shared plus all of his own yearly cost', near(mv(sp, 'pa', 'j'), 750) && near(mv(sp, 'pa', 'js'), 512.5), JSON.stringify(A));
+  check('by take-home: Sam moves 25% of shared', near(mv(sp, 'ps', 'j'), 250) && near(mv(sp, 'ps', 'js'), 137.5), JSON.stringify(S));
+  check('by take-home: what each keeps', near(A.keep, 1737.5) && near(A.keepPlanned, 100) && near(S.keep, 612.5) && near(S.keepPlanned, 50), JSON.stringify([A, S]));
+  check('leftovers add up to what is left to assign', near(pA.L + pS.L, 2200), `${pA.L} + ${pS.L}`);
+  check('the split control shows when pay lands in two accounts', await page.locator('#split').isVisible());
+  check('no percentage inputs unless percentages are set', (await page.locator('[data-scope="split"][data-field="pct"]').count()) === 0);
+  // Typing an amount re-draws nothing in the editor (refresh()), yet the split control follows pooled vs separate.
+  const typedPay = async () => ({ shown: await page.locator('#split').isVisible(), focus: await page.evaluate(() => document.activeElement.id) });
+  await page.click('#ia-is');
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('0');
+  const zero = await typedPay();
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('1000');
+  const back = await typedPay();
+  check('typing an amount hides and shows the split control, keeping focus',
+    !zero.shown && zero.focus === 'ia-is' && back.shown && back.focus === 'ia-is', JSON.stringify({ zero, back }));
+  let pay = await cardText(page, 'transfers');
+  check('each person gets their own transfers', pay.includes('Alex’s pay') && pay.includes('Sam’s pay'), pay);
+  check('the headings say how much lands where', pay.includes('Alex’s pay · $3,000 into Checking · Alex') && pay.includes('Sam’s pay · $1,000 into Checking · Sam'), pay);
+  check('the steps name the shares they are made of', pay.includes('75% of shared savings $500') && pay.includes('Alex’s yearly costs $100'), pay);
+
+  await page.selectOption('#split-mode', 'equal');
+  ({ sp, w } = await splitOf(page));
+  check('the mode menu keeps focus', (await page.evaluate(() => document.activeElement.id)) === 'split-mode');
+  check('equally', near(mv(sp, 'pa', 'j'), 500) && near(mv(sp, 'pa', 'js'), 375) && near(mv(sp, 'ps', 'j'), 500) && near(mv(sp, 'ps', 'js'), 275), JSON.stringify(sp));
+
+  await page.selectOption('#split-mode', 'custom');
+  await page.fill('#sp-pa', '70');
+  await page.fill('#sp-ps', '30');
+  ({ sp, w } = await splitOf(page));
+  check('set percentages 70/30', near(mv(sp, 'pa', 'j'), 700) && near(mv(sp, 'pa', 'js'), 485) && near(mv(sp, 'ps', 'j'), 300) && near(mv(sp, 'ps', 'js'), 165), JSON.stringify(sp));
+  check('percentages are stored', isDeepStrictEqual((await page.evaluate(() => window.__hbp.state().scenarios[0].split)), { mode: 'custom', pct: { pa: 70, ps: 30 } }));
+  await page.click('#sp-pa');
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('60');
+  const focus = await page.evaluate(() => ({ id: document.activeElement.id, value: document.activeElement.value }));
+  check('a percentage keeps focus and every keystroke', focus.id === 'sp-pa' && focus.value === '60', JSON.stringify(focus));
+  ({ sp, w } = await splitOf(page));
+  const inc = await cardText(page, 'income');
+  check('percentages adding up to 90 are scaled, with a note', near(w.pa, 2 / 3) && inc.includes('adds up to 90%') && inc.includes('Shares are scaled to add up to 100%'), inc);
+
+  // Review Focus 2
+  await page.fill('#sp-pa', '');
+  await page.fill('#sp-ps', '');
+  ({ sp, w } = await splitOf(page));
+  check('blank percentages fall back to equal shares', near(w.pa, 0.5) && near(w.ps, 0.5) && near(mv(sp, 'pa', 'j'), 500) && await noNaN(page), JSON.stringify(w));
+  await page.fill('#sp-pa', '0');
+  await page.fill('#sp-ps', '0');
+  ({ sp, w } = await splitOf(page));
+  check('percentages that are all zero fall back to equal shares', near(w.pa, 0.5) && near(w.ps, 0.5) && await noNaN(page), JSON.stringify(w));
+
+  await page.selectOption('#split-mode', 'equal');
+  await page.fill('#ia-is', '200');
+  pay = await cardText(page, 'transfers');
+  check('a share bigger than the pay is flagged', pay.includes('Sam’s share is $625 more than Sam’s pay. Lower some amounts or change the split.'), pay);
+  check('only that person is flagged', !pay.includes('Alex’s share is'), pay);
+
+  await page.fill('#ia-is', '1000');
+  await page.selectOption('#it-is', 'a1');
+  check('pay into one account again is pooled: no split control, today’s plan',
+    !(await page.locator('#split').isVisible()) && (await page.evaluate(() => window.__hbp.splitPlan())) === null &&
+    (await stepText(page, 'Joint savings')).includes('$650') && (await stepText(page, 'Checking · Sam')).includes('$50'), await cardText(page, 'transfers'));
+  await ctx.close();
+
+  // Sam has no pay; Alex has a second income landing in Joint checking, so pay still lands in two accounts.
+  const b = await openPage({ storage: sepPlan((p) => {
+    p.scenarios[0].incomes[1].amt = 0;
+    p.scenarios[0].incomes.push({ id: 'ig', name: 'Side gig', amt: 500, who: 'pa', to: 'j' });
+  }) });
+  sp = (await splitOf(b.page)).sp;
+  pay = await cardText(b.page, 'transfers');
+  check('a person with no pay who owns an account with items is flagged', sp && isDeepStrictEqual(sp.unfunded, [{ a: 's1', amt: 50 }]) &&
+    pay.includes('Nobody’s pay covers Checking · Sam ($50): Sam has no take-home in this scenario. Move those items to a shared account, or add Sam’s pay.'), JSON.stringify(sp && sp.unfunded) + ' | ' + pay);
+  check('only people with pay get a block', sp && sp.people.map((p) => p.id).join() === 'pa' && !pay.includes('Sam’s pay ·'), pay);
+  const alex = sp && sp.people[0];
+  const js = (x) => x.people.find((p) => p.id === 'pa').incomes.reduce((t, i) => t + ((i.moves.find((m) => m.a === 'js') || {}).amt || 0), 0);
+  check('a person with two incomes splits their transfers by amount', sp && near(js(sp), 650) && near(alex.incomes[0].moves.find((m) => m.a === 'js').amt, 650 * 6 / 7) &&
+    near(alex.incomes[1].moves.find((m) => m.a === 'js').amt, 650 / 7), JSON.stringify(alex));
+  check('each of their incomes gets its own heading', pay.includes('Alex pay · $3,000 into Checking · Alex') && pay.includes('Side gig · $500 into Joint checking'), pay);
+  // Under each income, a step's "why" names that income's part of each share, so its amounts add up to the step.
+  const whys = await b.page.evaluate(() => Array.from(document.querySelectorAll('.pp[data-person="pa"] .steps li')).map((li) => {
+    const num = (x) => Number(x.replace(/[^0-9.]/g, ''));
+    const parts = li.querySelector('.why').textContent.split(' + ');
+    const sum = parts.reduce((t, part) => {
+      const share = part.match(/^(\d+)% of .*\$([\d,]+)$/), dollars = part.match(/\$([\d,]+)/);
+      return t + (share ? Number(share[1]) / 100 * num(share[2]) : dollars ? num(dollars[1]) : 0);
+    }, 0);
+    return { step: li.children[0].textContent, amt: num(li.children[1].textContent), why: parts, sum };
+  }));
+  const toJs = whys.filter((x) => x.step === 'Move to Joint savings');
+  check('for a person with two incomes, each step’s “why” amounts add up to the step',
+    whys.length === 6 && toJs.length === 2 && whys.every((x) => Math.abs(x.amt - x.sum) <= 1), JSON.stringify(whys));
+  // Set percentages give Sam a share of shared costs that nobody's pay covers.
+  await b.page.selectOption('#split-mode', 'custom');
+  await b.page.fill('#sp-pa', '70');
+  await b.page.fill('#sp-ps', '30');
+  pay = await cardText(b.page, 'transfers');
+  check('a share given to someone with no pay is flagged', pay.includes('Sam’s share is $465 more than Sam’s pay'), pay);
+  await b.ctx.close();
+
+  // Review Focus 5: removing the only other earner of a separate scenario.
+  const c = await openPage({ storage: sepPlan() });
+  await c.page.click('[data-act="del-person"][data-id="ps"]');
+  await c.page.click('[data-act="del-person"][data-id="ps"]');
+  const s = await c.page.evaluate(() => window.__hbp.state());
+  check('removing the only other earner keeps the pay and shows no NaN',
+    s.people.length === 1 && s.scenarios[0].incomes.reduce((t, x) => t + x.amt, 0) === 4000 && s.scenarios[0].incomes.every((x) => x.who === 'pa') &&
+    s.accounts.s1.owner === '' && await noNaN(c.page), JSON.stringify(s.scenarios[0].incomes));
+  await c.ctx.close();
+
+  // The split control and both person blocks fit a phone.
+  for (const scheme of ['light', 'dark']) {
+    const ph = await openPage({ viewport: { width: 390, height: 844 }, colorScheme: scheme, storage: sepPlan((p) => { p.scenarios[0].split = { mode: 'custom', pct: { pa: 70, ps: 20 } }; }) });
+    const shown = (await ph.page.locator('#sp-pa').isVisible()) && (await cardText(ph.page, 'transfers')).includes('Sam’s pay');
+    const wide = await ph.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    check(`390px ${scheme}: no horizontal scroll with the split control and both person blocks`, shown && wide <= 0, `${wide}px too wide, shown: ${shown}`);
+    if (SHOTS) await ph.page.screenshot({ path: path.join(SHOTS, scheme === 'light' ? 'phone-separate.png' : 'phone-separate-dark.png'), fullPage: true });
+    await ph.ctx.close();
+  }
+});
+
 section('two-windows', async () => {
   const fx = JSON.parse(fs.readFileSync(FIXTURE_V1, 'utf8'));
 
@@ -795,8 +1405,9 @@ section('two-windows', async () => {
   await w.a.click('[data-act="ci-start"]');
   const saved = await until(w.a, (k) => { try { return JSON.parse(localStorage.getItem(k)).checkins.length === 1; } catch (e) { return false; } }, PLAN_KEY);
   check('a check-in started in one window is saved', saved);
+  const rows = await w.a.evaluate((k) => JSON.parse(localStorage.getItem(k)).checkins[0].spend.length, PLAN_KEY);
   check('the other window shows it without a reload',
-    await until(w.b, () => document.querySelectorAll('input[data-scope="ci"][data-field="actual"]').length === 10));
+    await until(w.b, (n) => document.querySelectorAll('input[data-scope="ci"][data-field="actual"]').length === n, rows));
   check('the other window says it was updated', await bannerHas(w.b, 'Updated from another window'));
   check('a click-twice confirm armed before the update is disarmed', !(await w.b.locator('#foot').innerText()).includes('Click again'));
   await w.b.locator(AMT).first().fill('2222');
@@ -844,6 +1455,14 @@ section('two-windows', async () => {
   check('an unreadable value from another window is backed up',
     await until(w.b, (k) => localStorage.getItem(k) === '{"broken":', BACKUP_KEY));
   check('and this window keeps its own plan', (await firstAmount(w.b)) === '1111');
+  await w.ctx.close();
+
+  // After an upgrade, the banner asking for names still applies once another window saves, so it stays.
+  w = await twoWindows({ storage: OLD() });
+  await editAndSave(w.b, '1111');
+  check('a window asking for names shows the other window’s edit', await until(w.a, (sel) => document.querySelector(sel).value === '1111', AMT));
+  const ask = await w.a.locator('#banner').innerText();
+  check('and keeps asking for names', ask.includes('add the people in your household'), ask);
   await w.ctx.close();
 });
 
@@ -896,8 +1515,9 @@ section('bfcache', async () => {
         await until(a, (k) => { try { return JSON.parse(localStorage.getItem(k)).checkins.length === 1; } catch (e) { return false; } }, PLAN_KEY);
       });
       check(`${label}: the page comes back from the back/forward cache`, cached);
+      const rows = await a.evaluate((k) => JSON.parse(localStorage.getItem(k)).checkins[0].spend.length, PLAN_KEY);
       check(`${label}: it shows the check-in saved while it was away`,
-        await until(b, () => document.querySelectorAll('input[data-scope="ci"][data-field="actual"]').length === 10));
+        await until(b, (n) => document.querySelectorAll('input[data-scope="ci"][data-field="actual"]').length === n, rows));
       check(`${label}: and says it was updated`, await bannerHas(b, 'Updated from another window'));
       if (drop) {
         await b.click('[data-act="banner-close"]');
