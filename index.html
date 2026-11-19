@@ -246,7 +246,18 @@ input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-i
 
 .add { align-self: flex-start; }
 
-.inc-row { display: grid; grid-template-columns: minmax(140px, 1fr) 110px 120px minmax(120px, 1fr) 30px; gap: 8px; align-items: center; }
+.inc-row { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(90px, 1fr) 100px 150px 30px; grid-template-areas: "n n w e d" "a a t t t" "s s s s s"; gap: 8px; align-items: center; }
+.inc-row > input.in { grid-area: n; } .inc-row > .inc-who { grid-area: w; } .inc-row > .inc-every { grid-area: e; } .inc-row > .inc-amt { grid-area: a; }
+.inc-row > .inc-to { grid-area: t; } .inc-row > .icon { grid-area: d; } .inc-row > .inc-sub { grid-area: s; }
+.inc-amt { display: flex; align-items: center; gap: 6px; }
+.inc-amt .amt .in { width: 92px; }
+.inc-unit, .inc-f { font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+.inc-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding-bottom: 6px; font-size: 13px; color: var(--ink-2); }
+.inc-sub[hidden] { display: none; }
+.inc-im { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.inc-f { display: inline-flex; align-items: center; gap: 6px; }
+.inc-f .in { min-width: 0; }
+.inc-hint { flex-basis: 100%; font-size: 12px; color: var(--ink-3); }
 .inc-to { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); white-space: nowrap; }
 .inc-to .in { min-width: 0; flex: 1; }
 /* How shared costs split, shown in the Income card while pay lands in more than one account. */
@@ -279,6 +290,12 @@ input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-i
 .pp h3, .pp h4 { overflow-wrap: anywhere; }
 .pp h4 { margin: 4px 0 0; font-size: 13px; font-weight: 600; color: var(--ink-2); }
 .pp h4 .faint { display: block; font-size: 12px; font-weight: 500; }
+/* How often to set a list of transfers up ("Once a month", "Twice a month, after paydays", "Twice a month, on the 15th and the last day"). */
+.steps-when { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+/* Extra paychecks (pay every two weeks or weekly): under the payday plan, outside the monthly plan. */
+.extra-pay { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 14px; }
+.extra-pay p { font-size: 14px; overflow-wrap: anywhere; }
+.extra-pay b { font-variant-numeric: tabular-nums; }
 .note { font-size: 13px; color: var(--ink-2); }
 .alert { font-size: 13px; padding: 8px 10px; border-radius: 8px; background: var(--bad-bg); color: var(--bad); font-weight: 600; }
 
@@ -370,9 +387,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   .wrap { padding: 18px 16px 40px; }
   h1 { font-size: 25px; }
   .rows-head { display: none; }
-  .inc-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 30px; grid-template-areas: "n n d" "w a a" "t t t"; }
-  .inc-row > input.in { grid-area: n; } .inc-row > .inc-who { grid-area: w; } .inc-row > .amt { grid-area: a; }
-  .inc-row > .inc-to { grid-area: t; } .inc-row > .icon { grid-area: d; }
+  .inc-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 30px; grid-template-areas: "n n d" "w e e" "a a a" "t t t" "s s s"; }
+  .inc-f { flex-wrap: wrap; } .inc-f .in { flex: 1; }
   /* The account menu takes the wider share of the second line: closed, it has to show whose account it is ("Checking · Alex"). */
   .row { grid-template-columns: 92px minmax(0, 1fr) 104px 30px; grid-template-areas: "n n a d" "f c c m"; }
   .row > .c-n { grid-area: n; } .row > .c-a { grid-area: a; } .row > .c-d { grid-area: d; }
@@ -449,11 +465,22 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   var PLAN_KEY = 'household-budget-planner:plan:v1';
   var NAME_KEY = 'household-budget-planner:name';
   var APP_ID = 'household-budget-planner';
-  var DATA_V = 3;
+  var DATA_V = 4;
   // Where a stored plan of version k is copied before it is upgraded (the v1 key also takes a value that can't be read).
   function backupKey(k) { return 'household-budget-planner:plan:v' + k + '-backup'; }
   var NEWER_MSG = 'This plan was saved by a newer version of the app. Reload while online to update.';
   var FREQ = { mo: { label: 'monthly', k: 1 }, wk: { label: 'weekly', k: 52 / 12 }, yr: { label: 'yearly', k: 1 / 12 } };
+  // How often an income is paid (its `every`). An income's amount is one paycheck; the monthly plan counts the k regular
+  // paychecks every month has. The rest (`extra` a year, usually) are extra paychecks, paydays `step` days apart.
+  var PAY = {
+    mo: { label: 'Monthly', k: 1, extra: 0, step: 0 },
+    semi: { label: 'Twice a month', k: 2, extra: 0, step: 0 },
+    biwk: { label: 'Every two weeks', k: 2, extra: 2, step: 14 },
+    wk: { label: 'Weekly', k: 4, extra: 4, step: 7 }
+  };
+  function isPay(e) { return typeof e === 'string' && Object.prototype.hasOwnProperty.call(PAY, e); }
+  // An income's schedule; one the app doesn't know counts as monthly.
+  function payOf(x) { return x && isPay(x.every) ? PAY[x.every] : PAY.mo; }
   var GROUPS = [
     { key: 'need', name: 'Necessities', desc: 'Bills and essentials you have to pay every month.' },
     { key: 'save', name: 'Savings', desc: 'Moved out first, on payday, so it actually gets saved.' },
@@ -478,6 +505,14 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function pad2(x) { return (x < 10 ? '0' : '') + x; }
   function monthIndex(key) { var p = String(key).split('-'); return parseInt(p[0], 10) * 12 + parseInt(p[1], 10) - 1; }
   function monthKey(i) { var y = Math.floor(i / 12); return y + '-' + pad2(i - y * 12 + 1); }
+  // A real calendar date written 'YYYY-MM-DD' (so not '2027-02-30'). Checked in UTC; setUTCFullYear keeps years below 100 as they are.
+  function isDate(s) {
+    var m = typeof s === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(s) : null;
+    if (!m) return false;
+    var y = parseInt(m[1], 10), mo = parseInt(m[2], 10) - 1, d = parseInt(m[3], 10), t = new Date(0);
+    t.setUTCFullYear(y, mo, d);
+    return t.getUTCFullYear() === y && t.getUTCMonth() === mo && t.getUTCDate() === d;
+  }
   function thisMonth(d) { d = d || new Date(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1); }
   function prevMonth(d) { return monthKey(monthIndex(thisMonth(d)) - 1); }
   function monthLong(key) { var i = monthIndex(key); return MONTHS[((i % 12) + 12) % 12]; }
@@ -533,8 +568,11 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     accounts[inv] = { name: 'Retirement / investing', note: 'IRA or brokerage', kind: 'save', owner: '' };
     accounts[achk] = { name: 'Checking', note: 'Own spending', kind: 'spend', owner: alex };
     accounts[schk] = { name: 'Checking', note: 'Own spending', kind: 'spend', owner: sam };
+    // Sam's payday: the most recent Friday (0–6 days back, today counts), as a local calendar date.
+    var now = new Date(), back = (now.getDay() + 2) % 7, fri = new Date(now.getFullYear(), now.getMonth(), now.getDate() - back);
+    var payday = fri.getFullYear() + '-' + pad2(fri.getMonth() + 1) + '-' + pad2(fri.getDate());
     return {
-      v: 3,
+      v: 4,
       touched: false,
       modifiedAt: 0,
       lastSync: null,
@@ -549,8 +587,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
         id: 'example', name: 'Example', sub: 'Example numbers: replace them with yours', depositTo: jchk,
         split: { mode: 'income', pct: {} },
         incomes: [
-          { id: nid(), name: 'Take-home pay', amt: 3600, who: alex, to: jchk },
-          { id: nid(), name: 'Take-home pay', amt: 3000, who: sam, to: jchk }
+          { id: nid(), name: 'Take-home pay', amt: 3600, who: alex, to: jchk, every: 'mo', payday: '', extraTo: '' },
+          { id: nid(), name: 'Take-home pay', amt: 1500, who: sam, to: jchk, every: 'biwk', payday: payday, extraTo: jsav }
         ],
         lines: items
       }]
@@ -601,8 +639,9 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   // so a name every object inherits ("__proto__", "constructor", "toString"…) would read or overwrite what it inherits.
   function okKey(x) { return okId(x) && !(x in Object.prototype); }
   function distinct(list) { return list.every(function (x, i) { return list.indexOf(x) === i; }); }
-  // A current (v3) plan: v2's checks, plus people, accounts with a kind, their display order, and each income's
-  // person and landing account. Ids that reach HTML must be safe; owners and other references may dangle (shown gracefully).
+  // A current (v4) plan: v2's checks, plus people, accounts with a kind, their display order, and each income's
+  // person, landing account and pay schedule (how often, a known payday, where extra paychecks go).
+  // Ids that reach HTML must be safe; owners and other references may dangle (shown gracefully).
   function validPlan(p) {
     if (!validShape(p) || p.v !== DATA_V || !Array.isArray(p.cats) || !Array.isArray(p.checkins) ||
       !okObj(p.fund) || !okMap(p.accounts) || !validDeep(p)) return false;
@@ -619,11 +658,13 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       (p.fund.acct === '' || (!!acct(p.fund.acct) && acct(p.fund.acct).kind === 'save')) &&
       p.scenarios.every(function (s) {
         return okObj(s.split) && SPLIT_MODES.indexOf(s.split.mode) >= 0 && okMap(s.split.pct) && Object.keys(s.split.pct).every(okKey) &&
-          s.incomes.every(function (x) { return okId(x.who) && okId(x.to); });
+          s.incomes.every(function (x) {
+            return okId(x.who) && okId(x.to) && isPay(x.every) && (x.payday === '' || isDate(x.payday)) && (x.extraTo === '' || okId(x.extraTo));
+          });
       });
   }
 
-  // Upgrades an older plan one version at a time (v1 → v2 → v3); a current plan passes through.
+  // Upgrades an older plan one version at a time (v1 → v2 → v3 → v4); a current plan passes through.
   // Works on a copy, only adds fields, keeps everything else (unknown fields included).
   // Returns null if the plan isn't valid for its version or the result isn't a valid current plan.
   function migrate(p) {
@@ -636,6 +677,10 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     if (q.v === 2) {
       if (!validV2(q) || !okMap(q.accounts)) return null;
       v2to3(q);
+    }
+    if (q.v === 3) {
+      if (!validShape(q)) return null; // the rest of what v3 required is checked again, on the result, by validPlan
+      v3to4(q);
     }
     return validPlan(q) ? q : null;
   }
@@ -673,6 +718,18 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     });
     q.v = 3;
   }
+  // Every income is paid monthly, with no payday and no extra paychecks: its amount is still its monthly take-home,
+  // so every number stays as it was. Overwriting a hand-edited v3 income's every, payday and extraTo is deliberate:
+  // it is what keeps the numbers unchanged.
+  function v3to4(q) {
+    q.scenarios.forEach(function (s) {
+      s.incomes.forEach(function (x) {
+        if (!okObj(x)) return;
+        x.every = 'mo'; x.payday = ''; x.extraTo = '';
+      });
+    });
+    q.v = 4;
+  }
 
   // A plan saved by a newer version of the app must never be overwritten by this one:
   // show the example plan, save nothing, and block export/import until a reload brings the new app.
@@ -692,7 +749,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       plan = p && typeof p.v === 'number' && p.v < DATA_V ? migrate(p) : (validPlan(p) ? p : null);
     } catch (e) { plan = null; }
     var from = plan && p.v < DATA_V ? p.v : 0;
-    var key = backupKey(p && (p.v === 1 || p.v === 2) ? p.v : 1);
+    var key = backupKey(p && (p.v === 1 || p.v === 2 || p.v === 3) ? p.v : 1);
     if (raw && (from || !plan) && !lsGet(key)) lsSet(key, raw);
     return { plan: plan, newer: false, upgraded: !!from, from: from };
   }
@@ -701,14 +758,15 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   var loaded = readStored(seenRaw);
   var blocked = loaded.newer;
   var migratedOnLoad = loaded.upgraded;
+  var askPeople = loaded.from === 1 || loaded.from === 2; // a v1 or v2 plan had no people; a v3 one has them already
   var state = loaded.plan || defaults();
   var deviceName = lsGet(NAME_KEY) || '';
   var savedAt = state.modifiedAt || 0;
   var storageOk = true;
   function newerBanner() { return { kind: 'error', html: '<b>' + esc(NEWER_MSG) + '</b>' }; }
   var TOUR_KEY = 'household-budget-planner:tour-seen';
-  // One slot: the newer-version error first, then the people notice after an upgrade, then the tour offer.
-  var banner = blocked ? newerBanner() : (migratedOnLoad ? { kind: 'people', lead: '' } : (lsGet(TOUR_KEY) ? null : { kind: 'tour' }));          // {kind:'import'|'error'|'info'|'people'|'tour', ...}
+  // One slot: the newer-version error first, then the people notice after an upgrade from v1 or v2, then the tour offer.
+  var banner = blocked ? newerBanner() : (askPeople ? { kind: 'people', lead: '' } : (lsGet(TOUR_KEY) ? null : { kind: 'tour' }));          // {kind:'import'|'error'|'info'|'people'|'tour', ...}
   var pendingDelete = null;
   var pendingDeleteCat = null;
   var pendingDeleteAcct = null; // account armed for removal
@@ -780,12 +838,12 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   // An account's label in the editor column. refresh() renews its text, so renaming an account or a person shows
   // there without re-drawing the input being typed in. (The side column is re-drawn by refresh() anyway.)
   function acctSpan(a, cls) { return '<span' + (cls ? ' class="' + cls + '"' : '') + ' data-acct-label="' + esc(a) + '">' + esc(acctLabel(a)) + '</span>'; }
-  // Options for an account menu: accounts of one kind, grouped by owner (Shared first, then people in order).
+  // Options for an account menu: accounts of one kind ('any' for all of them), grouped by owner (Shared first, then people in order).
   // Each option shows the full label, so a closed menu says whose "Checking" it is.
   // A `sel` that isn't one of them (a removed account, or one of the other kind) is kept as a first, selected option,
   // so the menu shows what the plan holds; pass null when nothing is to be selected.
   function acctOptions(kind, sel) {
-    var ids = acctsOfKind(kind);
+    var ids = kind === 'any' ? acctIds() : acctsOfKind(kind);
     function opts(list) {
       return list.map(function (a) { return '<option value="' + esc(a) + '"' + (a === sel ? ' selected' : '') + '>' + esc(acctLabel(a)) + '</option>'; }).join('');
     }
@@ -802,7 +860,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   // typed in is not re-drawn. (The account menus are items' "Paid from" / "Goes to", incomes' "lands in" and the fund's.)
   function relabelAcctOptions() {
     acctIds().forEach(function (a) {
-      root.querySelectorAll('select[data-field="acct"] option[value="' + a + '"], select[data-field="to"] option[value="' + a + '"]')
+      root.querySelectorAll('select[data-field="acct"] option[value="' + a + '"], select[data-field="to"] option[value="' + a + '"], select[data-field="extraTo"] option[value="' + a + '"]')
         .forEach(function (o) { o.textContent = acctLabel(a); });
     });
   }
@@ -815,9 +873,20 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     var k = state.fund.acct === a ? 1 : 0;
     state.scenarios.forEach(function (s) {
       s.lines.forEach(function (l) { if (l.acct === a) k += 1; });
-      s.incomes.forEach(function (x) { if (x.to === a) k += 1; });
+      s.incomes.forEach(function (x) {
+        if (x.to === a) k += 1;
+        if (hasExtra(x) && x.extraTo === a) k += 1; // extra paychecks go there only while the income has them
+      });
     });
     return k;
+  }
+  // Where an income's extra paychecks go when it is first paid every two weeks or weekly: the first Shared savings account,
+  // else its person's own first savings account, else '' (they stay where they land).
+  function defaultExtraTo(x) {
+    var sv = acctsOfKind('save'), i, who = incWho(x);
+    for (i = 0; i < sv.length; i++) if (!ownerOf(sv[i])) return sv[i];
+    for (i = 0; i < sv.length; i++) if (ownerOf(sv[i]) === who) return sv[i];
+    return '';
   }
   // Only an unused account can be removed, and never the last spending or the last savings account.
   function canDeleteAcct(a) {
@@ -835,9 +904,12 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   /* ---------- math ---------- */
   function n(v) { var x = parseFloat(v); return isFinite(x) && x > 0 ? x : 0; }
   function monthly(l) { return n(l.amt) * (FREQ[l.f] ? FREQ[l.f].k : 1); }
+  // An income's budgeted monthly take-home: its regular paychecks (extra paychecks stay out of the monthly plan).
+  function hasExtra(x) { return payOf(x).extra > 0; }
+  function incMonthly(x) { return payOf(x).k * n(x.amt); }
   function calc(s) {
     var I = 0, g = { need: 0, save: 0, want: 0 }, by = {};
-    s.incomes.forEach(function (x) { I += n(x.amt); });
+    s.incomes.forEach(function (x) { I += incMonthly(x); });
     var fund = 0, toFund = fundOn();
     s.lines.forEach(function (l) {
       var m = monthly(l); if (g[l.g] === undefined) return;
@@ -1145,8 +1217,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   // Where an income's pay lands: its account if that is a spending account, else the first spending account.
   function incTo(x) { return isKind(x.to, 'spend') ? x.to : acctsOfKind('spend')[0]; }
-  // An income is active from $0.50 a month: a $0 placeholder neither makes pay separate nor gets a share.
-  function isActive(x) { return n(x.amt) >= 0.5; }
+  // An income is active from $0.50 a month of budgeted pay: a $0 placeholder neither makes pay separate nor gets a share.
+  function isActive(x) { return incMonthly(x) >= 0.5; }
   // Whose pay an income is; one naming a person who no longer exists counts as the first person's, so no pay goes missing.
   // Everything that shows or sums whose pay it is (the whose menu, People, the payday plan) goes through this.
   function incWho(x) { return findPerson(x.who) ? x.who : state.people[0].id; }
@@ -1165,7 +1237,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     }
     var shared = acctsOfKind('spend').filter(function (a) { return !ownerOf(a); })[0];
     var to = s.incomes.length ? incTo(s.incomes[0]) : isKind(s.depositTo, 'spend') ? s.depositTo : shared || acctsOfKind('spend')[0];
-    return { id: nid(), name: 'Take-home pay', amt: 0, who: who, to: to };
+    return { id: nid(), name: 'Take-home pay', amt: 0, who: who, to: to, every: 'mo', payday: '', extraTo: '' };
   }
 
   function transfers(s, c) {
@@ -1183,7 +1255,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function payBy(s) {
     var I = {};
     state.people.forEach(function (p) { I[p.id] = 0; });
-    s.incomes.forEach(function (x) { if (isActive(x)) I[incWho(x)] += n(x.amt); });
+    s.incomes.forEach(function (x) { if (isActive(x)) I[incWho(x)] += incMonthly(x); });
     return I;
   }
   // A person's "Set percentages" entry; a missing one counts as 0.
@@ -1239,7 +1311,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       var incomes = [];
       s.incomes.forEach(function (x) {
         if (!isActive(x) || incWho(x) !== p.id) return;
-        var Ii = n(x.amt), part = Ii / Ip, d = incTo(x), moves = [], moved = 0;
+        var Ii = incMonthly(x), part = Ii / Ip, d = incTo(x), moves = [], moved = 0;
         ids.forEach(function (a) {
           var t = part * (Op[a] || 0);
           if (a !== d && t > 0.5) { moves.push({ a: a, amt: t }); moved += t; }
@@ -1257,6 +1329,35 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       if (t > 0.5) unfunded.push({ a: a, amt: t });
     });
     return { w: w, people: people, short: short, unfunded: unfunded };
+  }
+
+  /* ---------- extra paychecks (pay every two weeks or weekly) ---------- */
+  // A date's day number (days since 1 Jan 1970), counted in UTC so daylight saving can't move a payday.
+  function dayNum(y, mo, d) { var t = new Date(0); t.setUTCFullYear(y, mo, d); return Math.round(t.getTime() / 864e5); }
+  function monthStartDay(i) { var y = Math.floor(i / 12); return dayNum(y, i - y * 12, 1); }
+  // The `len` months from fromKey that hold more paydays than the k regular ones. Paydays are `step` days apart,
+  // before and after the one payday given. None without a payday, or for pay that has no extra paychecks.
+  function extraMonths(x, fromKey, len) {
+    var pay = payOf(x), out = [];
+    if (!hasExtra(x) || !isDate(x.payday)) return out;
+    var p = x.payday.split('-'), p0 = dayNum(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10)), i0 = monthIndex(fromKey);
+    for (var i = i0; i < i0 + len; i++) {
+      var a = monthStartDay(i), b = monthStartDay(i + 1);
+      var first = p0 + Math.ceil((a - p0) / pay.step) * pay.step; // the month's first payday (if it is before b)
+      if (first < b && Math.floor((b - 1 - first) / pay.step) + 1 > pay.k) out.push(monthKey(i));
+    }
+    return out;
+  }
+  // Where an income's extra paychecks go; '' leaves them where the pay lands (as does an account that no longer exists).
+  function extraDest(x) { return acctIds().indexOf(x.extraTo) >= 0 ? x.extraTo : ''; }
+  // Pooled pay with some of it not monthly: the transfers out stay monthly, set up once the month's paychecks are in.
+  function mixedPay(s) { return s.incomes.some(function (x) { return isActive(x) && payOf(x).k > 1; }); }
+  var POOLED_NOTE = 'Set these up once a month, on the last day of the month, after the month’s paychecks have landed.';
+  // A scenario's extra paychecks in a usual year: all of each one is outside the monthly plan.
+  function extraYear(s) {
+    var t = 0;
+    s.incomes.forEach(function (x) { if (isActive(x) && hasExtra(x)) t += payOf(x).extra * n(x.amt); });
+    return t;
   }
 
   /* ---------- formatting ---------- */
@@ -1358,7 +1459,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
 
   function renderFooter() {
     var el = document.getElementById('foot'); if (!el) return;
-    el.innerHTML = '<span>All amounts are monthly take-home (after-tax) dollars. Yearly and weekly items are converted to a monthly amount. ' +
+    el.innerHTML = '<span>Amounts are after-tax dollars a month, except pay entered per paycheck. Yearly and weekly items are converted to a monthly amount. ' +
       (state.touched ? '' : '<b>The starting amounts are examples. Replace them with your own.</b>') + '</span>' +
       '<button class="btn ghost danger" type="button" data-act="reset">' + (pendingReset ? 'Click again to reset everything' : 'Reset to example plan') + '</button>';
   }
@@ -1410,12 +1511,22 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
         '<label class="field" for="scn-name">Scenario name<input class="in" id="scn-name" data-scope="scn" data-field="name" value="' + esc(s.name) + '"></label>' +
       '</div><div class="rows">';
     s.incomes.forEach(function (x) {
+      var pay = payOf(x), mo = x.every === 'mo' || !isPay(x.every), ex = hasExtra(x);
+      var extTo = findAcct(x.extraTo) ? x.extraTo : ''; // a removed account shows as "Leave it where it lands"
       h += '<div class="inc-row">' +
         '<input class="in" id="in-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="name" value="' + esc(x.name) + '" aria-label="Income source name">' +
         '<select class="in inc-who" id="iw-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="who" aria-label="Whose pay is ' + esc(x.name) + '">' + whoOptions(incWho(x)) + '</select>' +
-        '<div class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="ia-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="amt" value="' + esc(x.amt) + '" aria-label="Monthly take-home for ' + esc(x.name) + '"></div>' +
+        '<select class="in inc-every" id="ie-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="every" aria-label="How often ' + esc(x.name) + ' is paid">' +
+          Object.keys(PAY).map(function (k) { return '<option value="' + k + '"' + (pay === PAY[k] ? ' selected' : '') + '>' + PAY[k].label + '</option>'; }).join('') + '</select>' +
+        '<div class="inc-amt"><div class="amt"><span class="cur">$</span><input class="in" type="number" inputmode="decimal" min="0" step="1" id="ia-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="amt" value="' + esc(x.amt) + '" aria-label="' + (mo ? 'Monthly take-home for ' : 'Take-home per paycheck for ') + esc(x.name) + '"></div>' +
+          '<span class="inc-unit">' + (mo ? 'a month' : 'per paycheck') + '</span></div>' +
         '<label class="inc-to">lands in<select class="in" id="it-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="to" aria-label="Account ' + esc(x.name) + ' lands in">' + acctOptions('spend', x.to) + '</select></label>' +
-        '<button class="icon" type="button" data-act="del-inc" data-id="' + x.id + '" aria-label="Remove ' + esc(x.name) + '" title="Remove">×</button></div>';
+        '<button class="icon" type="button" data-act="del-inc" data-id="' + x.id + '" aria-label="Remove ' + esc(x.name) + '" title="Remove">×</button>' +
+        '<div class="inc-sub"' + (mo ? ' hidden' : '') + '><span class="inc-im" data-out="im-' + x.id + '"></span>' +
+          (ex ? '<label class="inc-f">A recent payday<input class="in" type="date" id="ip-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="payday" value="' + esc(isDate(x.payday) ? x.payday : '') + '"></label>' +
+            '<label class="inc-f">Extra paychecks go to<select class="in" id="ix-' + x.id + '" data-scope="inc" data-id="' + x.id + '" data-field="extraTo"><option value=""' + (extTo ? '' : ' selected') + '>Leave it where it lands</option>' + acctOptions('any', extTo || null) + '</select></label>' +
+            '<span class="inc-hint">Use a typical paycheck; overtime and extra shifts come on top.</span>' : '') +
+        '</div></div>';
     });
     h += '</div><div class="actions">' +
       '<button class="btn ghost add" type="button" data-act="add-inc">+ Add income</button>' +
@@ -1461,7 +1572,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   function ownedBy(id) { return acctIds().filter(function (a) { return ownerOf(a) === id; }).length; }
   function peopleMeta(s, id) {
     var k = ownedBy(id), pay = 0;
-    s.incomes.forEach(function (x) { if (incWho(x) === id) pay += n(x.amt); });
+    s.incomes.forEach(function (x) { if (incWho(x) === id) pay += incMonthly(x); });
     return k + ' account' + (k === 1 ? '' : 's') + ' · ' + money(pay) + ' take-home here';
   }
   function peopleHTML(s) {
@@ -1714,6 +1825,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     renderSide(s, c);
     renderTabs();
     setOut('income-total', money(c.I) + ' a month');
+    s.incomes.forEach(function (x) { setOut('im-' + x.id, x.every === 'mo' || !isPay(x.every) ? '' : '= ' + money(incMonthly(x)) + ' a month (' + payOf(x).k + ' paychecks)'); });
     var split = document.getElementById('split');
     if (split) split.hidden = payMode(s).pooled;
     setOut('split-sum', splitSumHTML(s));
@@ -1789,7 +1901,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
   }
 
   function renderSummary(s, c) {
-    var st = status(c), due = checkinDue(new Date());
+    var st = status(c), due = checkinDue(new Date()), xy = extraYear(s);
     var scale = Math.max(c.I, c.P, 1);
     var leftPos = Math.max(c.left, 0);
     function w(v) { return (v / scale * 100).toFixed(2) + '%'; }
@@ -1802,6 +1914,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
           // The untouched example plan has nothing to check in on yet.
           (due.due && state.touched ? '<span class="chip warn">' + esc(monthLong(due.month)) + ' check-in not done</span>' : '') + '</div>' +
       '</div>' +
+      (xy > 0 ? '<p class="note">Plus about ' + money(xy) + ' a year in extra paychecks, outside the monthly plan.</p>' : '') +
       '<div class="stack-wrap"><div class="stack" role="img" aria-label="Necessities ' + money(c.g.need) + ', savings ' + money(c.g.save) + ', variable ' + money(c.g.want) + ', unassigned ' + money(leftPos) + '">' +
         '<div class="seg-need" style="width:' + w(c.g.need) + '"></div>' +
         '<div class="seg-save" style="width:' + w(c.g.save) + '"></div>' +
@@ -1853,7 +1966,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     // Pooled pay: one diagram and one list. Separate pay: a list per person (splitPlan is null while pooled).
     var sp = splitPlan(s, c), t = sp ? null : transfers(s, c);
     var h = '<section class="card flow" aria-label="Payday transfer plan" data-tour="transfers"><div class="card-head"><h2>Payday transfer plan</h2><span class="meta">Set these up as recurring transfers</span></div>' +
-      (sp ? personStepsHTML(s, sp) : flowSVG(t, c) + stepsHTML(s, c, t)) + '</section>';
+      (sp ? personStepsHTML(s, sp) : flowSVG(t, c) + (mixedPay(s) ? '<p class="note">' + POOLED_NOTE + '</p>' : '') + stepsHTML(s, c, t)) +
+      extraPayHTML(s) + '</section>';
 
     var goals = s.lines.filter(function (l) { return l.g === 'save' && goalInfo(l, c); });
     h += '<section class="card" aria-label="Savings goals" data-tour="goals"><div class="card-head"><h2>Savings goals</h2></div>';
@@ -1913,6 +2027,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       return r + '</tr>';
     }
     h += row('Take-home', function (o) { return money(o.c.I); });
+    if (cs.some(function (o) { return extraYear(o.s) > 0; })) h += row('Extra paychecks a year', function (o) { return money(extraYear(o.s)); });
     h += row('Necessities', function (o) { return money(o.c.g.need); });
     h += row('Savings', function (o) { return money(o.c.g.save); });
     h += row('Variable', function (o) { return money(o.c.g.want); });
@@ -2040,17 +2155,20 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     var h = '<p class="note">Pay lands in more than one account, so each person sets up their own transfers.</p>';
     sp.people.forEach(function (pp) {
       var who = personName(pp.id), many = pp.incomes.length > 1;
-      h += '<div class="pp" data-person="' + esc(pp.id) + '"><h3>' + esc(who + '’s pay · ' + money(pp.I) + (many ? '' : ' into ' + acctLabel(pp.incomes[0].land))) + '</h3>';
+      h += '<div class="pp" data-person="' + esc(pp.id) + '"><h3>' + esc(who + '’s pay · ' + money(pp.I) + ' a month' + (many ? '' : ' into ' + acctLabel(pp.incomes[0].land))) + '</h3>';
       pp.incomes.forEach(function (x) {
         var inc = findInc(s, x.id), name = String(inc && inc.name || '').trim() || 'Untitled income', part = many ? x.I / pp.I : 1;
+        // Pay that isn't monthly funds its transfers twice a month, half each (24 a year, as many as its regular paychecks).
+        var twice = payOf(inc).k > 1;
+        var why = function (text, monthAmt) { return twice ? (text ? text + ' ' : '') + '(' + money(monthAmt) + ' a month)' : text; };
         if (many) h += '<h4>' + esc(name + ' · ' + money(x.I) + ' into ' + acctLabel(x.land)) + '<span class="faint">' + esc('Covers ' + pct(part) + ' of what ' + who + ' pays for') + '</span></h4>';
-        h += '<ol class="steps">';
+        h += '<p class="steps-when">' + (twice ? (hasExtra(inc) ? 'Twice a month, on the 15th and the last day' : 'Twice a month, after paydays') : 'Once a month') + '</p><ol class="steps">';
         x.moves.forEach(function (m) {
-          h += '<li><span>Move to <b>' + esc(acctLabel(m.a)) + '</b></span><b>' + money(m.amt) + '</b><span class="why">' + esc(shareParts(s, sp.w, pp.id, m.a, part).join(' + ')) + '</span></li>';
+          h += '<li><span>Move to <b>' + esc(acctLabel(m.a)) + '</b></span><b>' + money(twice ? Math.ceil(Math.round(m.amt * 50) / 100) : m.amt) + '</b><span class="why">' + esc(why(shareParts(s, sp.w, pp.id, m.a, part).join(' + '), m.amt)) + '</span></li>';
         });
-        var kept = shareParts(s, sp.w, pp.id, x.land, part), unassigned = Math.max(x.keep - x.keepPlanned, 0);
+        var kept = shareParts(s, sp.w, pp.id, x.land, part), unassigned = Math.max(x.keep - x.keepPlanned, 0), keep = Math.max(x.keep, 0);
         if (unassigned > 0.5) kept.push(money(unassigned) + ' not assigned yet');
-        h += '<li><span>Keep in <b>' + esc(acctLabel(x.land)) + '</b></span><b>' + money(Math.max(x.keep, 0)) + '</b><span class="why">' + esc(kept.join(' + ') || 'nothing planned here') + '</span></li></ol>';
+        h += '<li><span>Keep in <b>' + esc(acctLabel(x.land)) + '</b></span><b>' + money(twice ? Math.floor(Math.round(keep * 50) / 100) : keep) + '</b><span class="why">' + esc(why(kept.join(' + ') || 'nothing planned here', keep)) + '</span></li></ol>';
       });
       sp.short.forEach(function (x) { if (x.id === pp.id) h += '<p class="alert">' + esc(shortText(x.id, x.amt)) + '</p>'; });
       h += '</div>';
@@ -2064,6 +2182,26 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       h += '<p class="alert">' + esc('Nobody’s pay covers ' + acctLabel(u.a) + ' (' + money(u.amt) + '): ' + who + ' has no take-home in this scenario. Move those items to a shared account, or add ' + who + '’s pay.') + '</p>';
     });
     return h;
+  }
+
+  // Extra paychecks, listed under the payday plan in either mode: by month when the income has a payday, else how many a
+  // year. None of an extra paycheck is in the monthly plan, so all of it goes where the income says, or stays where it lands.
+  var EXTRA_WORD = { 2: 'two', 4: 'four' };
+  function extraPayHTML(s) {
+    var xs = s.incomes.filter(function (x) { return isActive(x) && hasExtra(x); });
+    if (!xs.length) return '';
+    var from = thisMonth(), h = '<div class="extra-pay"><h3>Extra paychecks (not in the monthly plan)</h3>';
+    xs.forEach(function (x) {
+      var pid = incWho(x), pay = payOf(x), land = incTo(x), d = extraDest(x), months = extraMonths(x, from, 12), amt = money(n(x.amt));
+      // Someone with two such incomes gets a row for each, so the row names the income too.
+      var several = xs.filter(function (y) { return incWho(y) === pid; }).length > 1;
+      var who = personName(pid) + (several ? ' · ' + (String(x.name || '').trim() || 'Untitled income') : '');
+      var when = months.length ? months.map(function (k) { return monthLabel(k); }).join(', ') :
+        'usually ' + (EXTRA_WORD[pay.extra] || pay.extra) + ' a year (add a recent payday to see the months)';
+      h += '<p data-extra="' + esc(x.id) + '">' + esc(who + ' · ' + when + ': ') +
+        (d && d !== land ? 'move <b>' + amt + '</b> each to <b>' + esc(acctLabel(d)) + '</b>' : '<b>' + amt + '</b> each, left in <b>' + esc(acctLabel(land)) + '</b>') + '</p>';
+    });
+    return h + '</div>';
   }
 
   function honeydueText(s) {
@@ -2162,8 +2300,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     state.modifiedAt = now;
     state.lastSync = { at: now, kind: 'import', by: p.exportedBy || '' };
     var lead = 'Imported the plan' + (p.exportedBy ? ' from ' + esc(p.exportedBy) : '') + '.';
-    // A file from an older version has no people yet: say so, with the import message first.
-    banner = p.state && p.state.v < DATA_V ? { kind: 'people', lead: lead } : { kind: 'info', html: lead };
+    // A file from v1 or v2 has no people yet: say so, with the import message first.
+    banner = p.state && p.state.v <= 2 ? { kind: 'people', lead: lead } : { kind: 'info', html: lead };
     resetView();
     persist();
     renderAll();
@@ -2201,7 +2339,11 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
       return;
     }
     if (sc === 'line') { var l = findLine(s, id); if (!l) return; if (t.tagName === 'SELECT') return; l[f] = isNum ? n(v) : v; }
-    else if (sc === 'inc') { var x = findInc(s, id); if (!x || t.tagName === 'SELECT') return; x[f] = isNum ? n(v) : v; }
+    else if (sc === 'inc') {
+      var x = findInc(s, id); if (!x || t.tagName === 'SELECT') return;
+      // A payday is a real date or nothing: a text box (some browsers) or a bad paste never stores anything else.
+      x[f] = f === 'payday' ? (isDate(v) ? v : '') : isNum ? n(v) : v;
+    }
     else if (sc === 'goal') { var lg = findLine(s, id); if (!lg) return; if (t.tagName === 'SELECT') return; lg.goal = lg.goal || newGoal(); if (f === 'saved') setGoalBalance(lg, n(v)); else lg.goal[f] = n(v); }
     else if (sc === 'scn') { if (f === 'depositTo') return; s[f] = v; }
     // A percentage in the editor column: refresh() keeps the input (and its focus) while the payday plan follows.
@@ -2256,7 +2398,17 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     // Whose pay it is and where it lands change what the scenario is and which accounts are in use: redraw, keeping focus.
     if (sc === 'inc') {
       var xi = findInc(s, id); if (!xi) return;
-      xi[f] = v; changed(); rerenderEditor(t.id);
+      if (f === 'every') {
+        if (!isPay(v)) return;
+        var hadExtra = hasExtra(xi);
+        xi.every = v;
+        // The default applies when the income is first switched to extra paychecks, not on every later switch.
+        if (PAY[v].extra > 0 && !hadExtra && !findAcct(xi.extraTo)) xi.extraTo = defaultExtraTo(xi);
+      } else if (f === 'extraTo') {
+        if (v !== '' && !findAcct(v)) return;
+        xi.extraTo = v;
+      } else xi[f] = v;
+      changed(); rerenderEditor(t.id);
       return;
     }
     if (sc === 'line') {
@@ -2504,7 +2656,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     { sel: '[data-tour="checkin"]', title: 'Monthly check-in',
       text: 'Once a month, type each category’s total from Honeydue and your savings balances. You’ll see what ran over or under and whether each goal is on track. Balances start as what the plan expected; correct only what differs.' },
     { sel: '[data-tour="income"]', title: 'Income',
-      text: 'Monthly take-home pay after tax, with whose pay it is and the account it lands in. Every transfer starts from the account a paycheck lands in.' },
+      text: 'Take-home pay after tax, with whose pay it is, the account it lands in and how often it arrives. If you’re paid every two weeks or weekly, enter one paycheck; the two or four extra paychecks a year are shown apart from the monthly plan.' },
     { sel: '[data-tour="need"]', title: 'Necessities',
       text: 'Bills and essentials. Give each one how often it’s paid and the account it’s paid from; weekly and yearly amounts are converted to a monthly figure.' },
     { sel: '[data-tour="save"]', title: 'Savings',
@@ -2520,7 +2672,7 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     { sel: '[data-tour="accounts"]', title: 'Accounts',
       text: 'Rename these to match your banks. Shared accounts are listed first, then each person’s own. The names appear in the transfer plan and in every account menu.' },
     { sel: '[data-tour="transfers"]', title: 'Payday transfer plan',
-      text: 'The recurring transfers to set up at your bank, from the account your pay lands in to each of the others. When pay is pooled you get one list; when it isn’t, each person gets their own, and shared costs are split by the rule you choose.' },
+      text: 'The recurring transfers to set up at your bank, from the account your pay lands in to each of the others. Pay that isn’t monthly is set up twice a month, half each time: on the 15th and the last day if you’re paid every two weeks or weekly, after paydays if you’re paid twice a month. When pay is pooled you get one list; when it isn’t, each person gets their own, and shared costs are split by the rule you choose.' },
     { sel: '[data-tour="goals"]', title: 'Savings goals',
       text: 'Each goal’s balance, target and status: on track, behind, or how much more a month it needs. The yearly-costs fund is listed first when it’s on.' },
     { sel: '[data-tour="honeydue"]', title: 'Honeydue limits',
@@ -2623,6 +2775,8 @@ footer { display: flex; flex-wrap: wrap; gap: 10px 20px; justify-content: space-
     weights: function () { return weights(scn()); },
     splitPlan: function () { return splitPlan(scn(), calc(scn())); },
     transfers: function (id) { var s = id ? findScn(id) : scn(); return s ? transfers(s, calc(s)) : null; },
+    calc: function (id) { var s = id ? findScn(id) : scn(); return s ? calc(s) : null; },
+    incMonthly: incMonthly, extraMonths: extraMonths,
     tourState: function () { var st = tourSteps[tourI]; return { i: tourI, n: tourSteps.length, sel: st ? st.sel : null }; }
   };
 

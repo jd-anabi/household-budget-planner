@@ -25,9 +25,10 @@ const APP_ID = 'household-budget-planner';
 const PLAN_KEY = 'household-budget-planner:plan:v1';
 const backupKey = (k) => `household-budget-planner:plan:v${k}-backup`; // where a stored plan of version k is copied before its upgrade
 const BACKUP_KEY = backupKey(1); // also where a stored value the app can't read is copied
-const DATA_VERSION = 3; // Bump with the data model, and add a check that an older plan file still imports.
+const DATA_VERSION = 4; // Bump with the data model, and add a check that an older plan file still imports.
 const FIXTURE_V1 = path.join(__dirname, 'fixtures', 'plan-v1.json');
 const FIXTURE_V2 = path.join(__dirname, 'fixtures', 'plan-v2.json');
+const FIXTURE_V3 = path.join(__dirname, 'fixtures', 'plan-v3.json');
 const SHOTS = process.argv[2] ? path.resolve(process.argv[2]) : null;
 const ONLY = (process.env.ONLY || '').split(',').map((s) => s.trim()).filter(Boolean);
 const AMT = 'input[data-field="amt"]';
@@ -362,9 +363,24 @@ section('migration', async () => {
   const rest = withoutSyncFields(st2), was = withoutSyncFields(src2);
   delete rest.v; delete was.v; delete rest.people; delete rest.acctOrder;
   Object.keys(rest.accounts).forEach((a) => { delete rest.accounts[a].kind; delete rest.accounts[a].owner; });
-  rest.scenarios.forEach((s) => { delete s.split; s.incomes.forEach((x) => { delete x.who; delete x.to; }); });
+  rest.scenarios.forEach((s) => { delete s.split; s.incomes.forEach((x) => { delete x.who; delete x.to; delete x.every; delete x.payday; delete x.extraTo; }); });
   const differ = Object.keys(Object.assign({}, rest, was)).filter((k) => !isDeepStrictEqual(rest[k], was[k]));
   check('everything else in a v2 file is unchanged', differ.length === 0, `differs: ${differ.join(', ')}`);
+
+  // A v3 file gains only a pay schedule on each income, monthly, so every number stays as it was.
+  const fx3 = JSON.parse(fs.readFileSync(FIXTURE_V3, 'utf8'));
+  const src3 = Object.assign({}, fx3.state, { extra: { a: 1 } });
+  const st3 = await importInto(3, src3);
+  const payV4 = (x) => x.every === 'mo' && x.payday === '' && x.extraTo === '';
+  check(`v3 file imports as v${DATA_VERSION}`, st3.v === DATA_VERSION && st3.scenarios.every((s) => s.incomes.every(payV4)),
+    JSON.stringify({ v: st3.v, incomes: st3.scenarios.map((s) => s.incomes) }));
+  const stripped = withoutSyncFields(st3), fixtureState = withoutSyncFields(src3);
+  delete stripped.v; delete fixtureState.v;
+  stripped.scenarios.forEach((s) => s.incomes.forEach((x) => { delete x.every; delete x.payday; delete x.extraTo; }));
+  check('everything else in a v3 file is unchanged', isDeepStrictEqual(stripped, fixtureState),
+    `differs: ${Object.keys(Object.assign({}, stripped, fixtureState)).filter((k) => !isDeepStrictEqual(stripped[k], fixtureState[k])).join(', ')}`);
+  check(`v1 and v2 files still import, as v${DATA_VERSION}`, st.v === DATA_VERSION && st2.v === DATA_VERSION &&
+    [st, st2].every((x) => x.scenarios.every((s) => s.incomes.every(payV4))), JSON.stringify({ v1: st.v, v2: st2.v }));
 
   const raw = JSON.stringify(fx.state);
   const b = await openPage({ storage: { [PLAN_KEY]: raw } });
@@ -422,14 +438,124 @@ section('migration', async () => {
   check('an income and a scenario added after the upgrade still load after a reload', back.scenarios === 3 && back.incomes === 3, JSON.stringify(back));
   await d.ctx.close();
 
+  // A stored v3 plan is upgraded and backed up under the v3 key. It has people already, so the People banner stays away.
+  const raw3 = JSON.stringify(fx3.state);
+  const t3 = await openPage({ storage: { [PLAN_KEY]: raw3 } });
+  const v3 = await storedV(t3.page);
+  check('a stored v3 plan is upgraded on load and backed up', v3 === DATA_VERSION && (await stored(t3.page, backupKey(3))) === raw3, `stored v ${v3}`);
+  const bk3 = { v1: await stored(t3.page, backupKey(1)), v2: await stored(t3.page, backupKey(2)) };
+  check('only under the v3 key', bk3.v1 === null && bk3.v2 === null, JSON.stringify(bk3));
+  check('a v3 plan upgraded to v4 does not ask for people', !(await t3.page.locator('#banner').innerText()).includes('add the people'));
+
+  check('the pooled v3 fixture is still pooled after the upgrade', (await t3.page.evaluate(() => window.__hbp.payMode())).pooled === true);
+
+  // A stored v3 plan with separate pay (two incomes landing in different accounts, a custom split) keeps its per-person transfers.
+  // Expected values come from the v3 rules, worked out here: weights pct / sum, a share by the item's bearer (own account 1,
+  // shared w, someone else's 0), yearly need/want items go to the fund account, each income moves its person's O to the other accounts.
+  {
+    const sv = JSON.parse(JSON.stringify(fx3.state)), sc = sv.scenarios[0];
+    const [pa, ps] = sv.people.map((x) => x.id);
+    sc.incomes[1].to = Object.keys(sv.accounts).find((a) => sv.accounts[a].owner === ps && sv.accounts[a].kind === 'spend');
+    sc.split = { mode: 'custom', pct: { [pa]: 60, [ps]: 40 } };
+    const w = { [pa]: 0.6, [ps]: 0.4 };
+    const O = (pid) => {
+      const o = {};
+      sc.lines.forEach((l) => {
+        const dest = sv.fund.acct && l.f === 'yr' && (l.g === 'need' || l.g === 'want') ? sv.fund.acct : l.acct;
+        const own = sv.accounts[l.acct].owner, sg = own === '' ? w[pid] : own === pid ? 1 : 0;
+        o[dest] = (o[dest] || 0) + sg * Math.max(0, Number(l.amt) || 0) * (K[l.f] || 1);
+      });
+      return o;
+    };
+    const sep = await openPage({ storage: { [PLAN_KEY]: JSON.stringify(sv) } });
+    const got = await splitOf(sep.page), bad = [];
+    [[pa, sc.incomes[0]], [ps, sc.incomes[1]]].forEach(([pid, inc]) => {
+      const o = O(pid);
+      sv.acctOrder.forEach((a) => {
+        if (a !== inc.to && (o[a] || 0) > 0.5 && Math.abs(mv(got.sp, pid, a) - o[a]) > 1e-6) bad.push([pid, a, mv(got.sp, pid, a), o[a]]);
+      });
+    });
+    check('an upgraded separate-pay v3 plan keeps its per-person transfers',
+      (await sep.page.evaluate(() => window.__hbp.payMode())).pooled === false && !!got.sp && Math.abs(got.w[pa] - 0.6) < 1e-9 && bad.length === 0, JSON.stringify({ bad, w: got.w }));
+    await sep.ctx.close();
+  }
+
+  // Equivalence, worked out here from the fixture: take-home is the sum of the incomes; all of them land in one spending account
+  // (pooled); every other account receives the monthly sum of the items assigned to it (yearly need/want items go to the fund
+  // account while the fund is on), in acctOrder; the rest stays where pay lands.
+  const f3 = fx3.state;
+  for (const s of f3.scenarios) {
+    const by = {};
+    s.lines.forEach((l) => {
+      const a = f3.fund.acct && l.f === 'yr' && (l.g === 'need' || l.g === 'want') ? f3.fund.acct : l.acct;
+      by[a] = (by[a] || 0) + Math.max(0, Number(l.amt) || 0) * (K[l.f] || 1);
+    });
+    const I = s.incomes.reduce((sum, x) => sum + Math.max(0, Number(x.amt) || 0), 0);
+    const lands = [...new Set(s.incomes.map((x) => x.to))], land = lands[0];
+    const items = f3.acctOrder.filter((a) => a !== land && (by[a] || 0) > 0.5).map((a) => ({ a, amt: by[a] }));
+    const expKeep = I - items.reduce((sum, x) => sum + x.amt, 0);
+    const got = await t3.page.evaluate((id) => ({ t: window.__hbp.transfers(id), c: window.__hbp.calc ? window.__hbp.calc(id) : null }), s.id);
+    const t = got.t;
+    const sameItems = !!t && t.land === land && t.items.length === items.length &&
+      t.items.every((x, k) => x.a === items[k].a && Math.abs(x.amt - items[k].amt) < 1e-9);
+    check(`an upgraded v3 scenario’s take-home and payday plan are unchanged (${s.id})`,
+      lands.length === 1 && f3.accounts[land].kind === 'spend' && sameItems && Math.abs(t.keep - expKeep) < 1e-9 && !!got.c && got.c.I === I,
+      JSON.stringify({ t, I: got.c && got.c.I, exp: { land, items, keep: expKeep, I } }));
+  }
+  await t3.ctx.close();
+
+  // Budgeted income: an amount is one paycheck, and each month counts its regular paychecks (1, 2, 2 and 4).
+  {
+    const inc = (id, every, amt) => ({ id, name: 'Pay', amt, who: 'p1', to: 'c', every, payday: '', extraTo: '' });
+    const bi = await openPage({ storage: minPlan((p) => { p.scenarios[0].incomes.push(inc('b1', 'biwk', 1500), inc('b2', 'semi', 1500), inc('b3', 'wk', 700), inc('b4', 'mo', 3000)); }) });
+    const { vals, I } = await bi.page.evaluate(() => {
+      const h = window.__hbp, s = h.state().scenarios[0];
+      return { vals: h.incMonthly ? s.incomes.map((x) => h.incMonthly(x)) : [], I: h.calc ? h.calc().I : null };
+    });
+    check('pay schedules budget on regular paychecks', (await loadedScn(bi.page)) === 'm' && vals.join() === '3000,3000,2800,3000' && I === 11800, JSON.stringify({ vals, I }));
+    const meta = await bi.page.$$eval('.person-row .p-m', (els) => els.map((e) => e.textContent));
+    check('People shows the budgeted monthly take-home', !!meta[0] && meta[0].includes('$11,800 take-home'), JSON.stringify(meta));
+    await bi.ctx.close();
+  }
+  // Separate pay shares costs by budgeted monthly pay: Sam paid $500 every two weeks covers what $1,000 a month did.
+  {
+    const a = await openPage({ storage: sepPlan() });
+    const base = await splitOf(a.page);
+    await a.ctx.close();
+    const b2 = await openPage({ storage: sepPlan((p) => { Object.assign(p.scenarios[0].incomes[1], { every: 'biwk', amt: 500 }); }) });
+    const biwk = await splitOf(b2.page);
+    check('separate pay shares costs by budgeted monthly pay', (await loadedScn(b2.page)) === 'sep' && !!base.sp && isDeepStrictEqual(biwk, base), JSON.stringify({ base, biwk }));
+    await b2.ctx.close();
+  }
+  // An income is active from $0.50 a month of budgeted pay: 20 cents a week is (80 cents a month), 20 cents a month is not.
+  {
+    const pooledWith = async (every) => {
+      const o = await openPage({ storage: sepPlan((p) => { Object.assign(p.scenarios[0].incomes[1], { every, amt: 0.2 }); }) });
+      const pm = await o.page.evaluate(() => window.__hbp.payMode());
+      const ok = (await loadedScn(o.page)) === 'sep';
+      await o.ctx.close();
+      return ok ? pm.pooled : null;
+    };
+    const mo = await pooledWith('mo'), wk = await pooledWith('wk');
+    check('an income is active from $0.50 a month of budgeted pay', mo === true && wk === false, JSON.stringify({ mo, wk }));
+  }
+
   const c = await openPage({});
   const ex = await c.page.evaluate(() => window.__hbp.state());
   const car = lines(ex).find((l) => l.name === 'Car registration & maintenance');
   const gifts = lines(ex).find((l) => l.name === 'Gifts & holidays');
   check('the example is one generic scenario with two people, pooled',
-    ex.v === 3 && ex.scenarios.length === 1 && ex.scenarios[0].name === 'Example' && ex.people.map((p) => p.name).join() === 'Alex,Sam' &&
+    ex.v === DATA_VERSION && ex.scenarios.length === 1 && ex.scenarios[0].name === 'Example' && ex.people.map((p) => p.name).join() === 'Alex,Sam' &&
     ex.cats.length === 6 && ex.accounts[ex.fund.acct].name === 'Joint savings' && car && car.due === 3 && !!car.cat && gifts && gifts.due === 12 &&
     new Set(ex.scenarios[0].incomes.map((x) => x.to)).size === 1, JSON.stringify({ n: ex.scenarios.length, people: ex.people }));
+  const incs = ex.scenarios[0].incomes, sam = incs.find((x) => x.who === ex.people[1].id), alex = incs.find((x) => x.who === ex.people[0].id);
+  const dayInfo = await c.page.evaluate((pd) => {
+    const t = new Date(), today = Date.UTC(t.getFullYear(), t.getMonth(), t.getDate()), p = pd.split('-').map(Number), d = Date.UTC(p[0], p[1] - 1, p[2]);
+    return { dow: new Date(d).getUTCDay(), ago: Math.round((today - d) / 864e5) };
+  }, sam.payday || '2000-01-01');
+  check('the example’s Sam is paid every two weeks, $1,500, extra paychecks to Joint savings, on a recent Friday; Alex stays monthly',
+    sam.every === 'biwk' && sam.amt === 1500 && ex.accounts[sam.extraTo] && ex.accounts[sam.extraTo].name === 'Joint savings' &&
+    dayInfo.dow === 5 && dayInfo.ago >= 0 && dayInfo.ago <= 13 && alex.every === 'mo' && alex.amt + 2 * sam.amt === 6600, JSON.stringify({ sam, dayInfo }));
   await c.ctx.close();
 });
 
@@ -679,6 +805,8 @@ section('tour', async () => {
     await grab();
   }
   check('no tour step says “line”', texts.every((t) => !/\blines?\b/i.test(t)), texts.filter((t) => /\blines?\b/i.test(t)).join(' | '));
+  const tourOf = (t) => texts[titles.indexOf(t)] || '';
+  check('the tour explains pay schedules', tourOf('Income').includes('every two weeks') && tourOf('Payday transfer plan').includes('twice a month'), tourOf('Income') + ' | ' + tourOf('Payday transfer plan'));
   check('the tour has a People step before Accounts', titles.indexOf('People') >= 0 && titles.indexOf('People') === titles.indexOf('Accounts') - 1, titles.join(' | '));
   check('every step scrolls its part into view and outlines it', missed.length === 0, `steps not shown: ${missed.join(', ')}`);
   check('the last step offers Finish', (await page.locator('#tour').innerText()).includes('Finish'));
@@ -862,6 +990,9 @@ section('import-safety', async () => {
       sp.forEach((a) => { delete st.accounts[a]; }); st.acctOrder = st.acctOrder.filter((a) => !sp.includes(a));
     }),
     'yearly-costs fund in a spending account': variant((st) => { st.fund.acct = spendOf(st)[0]; }),
+    'unknown pay schedule': variant((st) => { st.scenarios[0].incomes[0].every = 'daily'; }),
+    'payday that is not a date': variant((st) => { st.scenarios[0].incomes[0].payday = '2027-02-30'; }),
+    'extraTo with markup': variant((st) => { st.scenarios[0].incomes[0].extraTo = 'x"><b>'; }),
   };
   for (const [name, st] of Object.entries(files)) {
     await page.reload({ waitUntil: 'networkidle' });
@@ -1063,7 +1194,7 @@ section('accounts', async () => {
     p.accounts.a = { name: 'Alex checking', note: '', kind: 'spend', owner: 'p2' };
     p.accounts.k = { name: 'kim (k) card', note: '', kind: 'spend', owner: 'p3' };
     p.acctOrder.push('a', 'k');
-    p.scenarios[0].incomes.push({ id: 'i1', name: 'Pay', amt: 1000, who: 'p1', to: 'c' });
+    p.scenarios[0].incomes.push({ id: 'i1', name: 'Pay', amt: 1000, who: 'p1', to: 'c', every: 'mo', payday: '', extraTo: '' });
     p.scenarios[0].lines.push({ id: 'l1', g: 'save', name: 'Saving', amt: 100, f: 'mo', acct: 's' },
       { id: 'l2', g: 'need', name: 'Bills', amt: 100, f: 'mo', acct: 'a', cat: '', due: 0 },
       { id: 'l3', g: 'want', name: 'Fun', amt: 50, f: 'mo', acct: 'k', cat: '', due: 0 });
@@ -1180,6 +1311,14 @@ section('people', async () => {
   await b.page.click('[data-act="banner-close"]');
   check('Dismiss closes the banner', (await b.page.locator('#banner').innerText()).trim() === '');
   await b.ctx.close();
+
+  // A v3 file already has people: it imports without asking for names.
+  const c = await openPage({});
+  await c.page.setInputFiles('#import-file', FIXTURE_V3);
+  await c.page.click('[data-act="import-confirm"]');
+  check('importing a v3 file says so without asking for names',
+    await bannerHas(c.page, 'Imported the plan') && !(await c.page.locator('#banner').innerText()).includes('add the people'), await c.page.locator('#banner').innerText());
+  await c.ctx.close();
 });
 
 section('income', async () => {
@@ -1197,7 +1336,8 @@ section('income', async () => {
   await page.click('[data-act="add-inc"]');
   s = await st();
   const ni = s.scenarios.find((x) => x.id === 'now').incomes.slice(-1)[0];
-  check('a new income goes to the same account as the others', ni.who === p1 && ni.to === 'mchk' && ni.name === 'Take-home pay' && ni.amt === 0, JSON.stringify(ni));
+  check('a new income goes to the same account as the others, paid monthly', ni.who === p1 && ni.to === 'mchk' && ni.name === 'Take-home pay' && ni.amt === 0 &&
+    ni.every === 'mo' && ni.payday === '' && ni.extraTo === '', JSON.stringify(ni));
   await page.selectOption(`#it-${ni.id}`, 'jchk');
   check('the menu keeps focus after the change', (await page.evaluate(() => document.activeElement.id)) === `it-${ni.id}`);
   check('the choice is stored', (await st()).scenarios.find((x) => x.id === 'now').incomes.slice(-1)[0].to === 'jchk');
@@ -1220,7 +1360,7 @@ section('income', async () => {
   // An income naming a person who no longer exists is the first person's pay, in its menu and in People as in the payday plan.
   const g = await openPage({ storage: minPlan((p) => {
     p.people.push({ id: 'p2', name: 'Kit' });
-    p.scenarios[0].incomes.push({ id: 'i1', name: 'Pay', amt: 1000, who: 'ghost', to: 'c' });
+    p.scenarios[0].incomes.push({ id: 'i1', name: 'Pay', amt: 1000, who: 'ghost', to: 'c', every: 'mo', payday: '', extraTo: '' });
   }) });
   const menu = await g.page.evaluate(() => { const sel = document.getElementById('iw-i1'); return { value: sel.value, options: Array.from(sel.options).map((o) => o.value) }; });
   const meta = await g.page.$$eval('.person-row .p-m', (els) => els.map((e) => e.textContent));
@@ -1228,6 +1368,84 @@ section('income', async () => {
     (await loadedScn(g.page)) === 'm' && menu.value === 'p1' && !menu.options.includes('ghost') && meta[0].includes('$1,000 take-home') && meta[1].includes('$0 take-home'),
     JSON.stringify({ menu, meta }));
   await g.ctx.close();
+
+  // How often you're paid: amount per paycheck, payday, extra paychecks.
+  const pp = await openPage({ storage: minPlan((p) => {
+    p.accounts.s2 = { name: 'Savings two', note: '', kind: 'save', owner: '' };
+    p.acctOrder.push('s2');
+    p.scenarios[0].incomes.push({ id: 'i1', name: 'Pay', amt: 3000, who: 'p1', to: 'c', every: 'mo', payday: '', extraTo: '' });
+  }) });
+  const pg = pp.page;
+  const active = () => pg.evaluate(() => document.activeElement.id);
+  const text = (sel) => pg.locator(sel).innerText();
+  const storedInc = () => pg.evaluate((k) => JSON.parse(localStorage.getItem(k)).scenarios[0].incomes[0], PLAN_KEY);
+  const settle = () => pg.waitForTimeout(500);
+  check('a monthly income shows no schedule line', (await pg.locator('#ip-i1').count()) === 0 && (await pg.locator('#ix-i1').count()) === 0 && (await text('[data-out="im-i1"]')) === '');
+  check('how often lists the schedules in order', (await pg.$$eval('#ie-i1 option', (o) => o.map((x) => x.textContent))).join() === 'Monthly,Twice a month,Every two weeks,Weekly');
+  await pg.selectOption('#ie-i1', 'biwk');
+  check('changing how often keeps focus on it', (await active()) === 'ie-i1');
+  const label = await pg.getAttribute('#ia-i1', 'aria-label');
+  check('the amount is a paycheck now, and the card says what that means a month',
+    label.includes('per paycheck') && (await text('[data-out="im-i1"]')) === '= $6,000 a month (2 paychecks)', label + '|' + (await text('[data-out="im-i1"]')));
+  check('the amount stays 3000', (await pg.inputValue('#ia-i1')) === '3000');
+  check('extra paychecks default to the first shared savings account', (await pg.inputValue('#ix-i1')) === 's', await pg.inputValue('#ix-i1'));
+  const xo = await pg.$$eval('#ix-i1 option', (o) => o.map((x) => x.value + ':' + x.textContent));
+  check('extra paychecks offer leaving them, then every account', xo[0] === ':Leave it where it lands' && xo.length === 4, xo.join('|'));
+  await pg.selectOption('#ix-i1', 's2');
+  check('changing where extra paychecks go keeps focus on it', (await active()) === 'ix-i1');
+  check('an account extra paychecks go to cannot be removed', (await pg.locator('[data-act="del-acct"][data-id="s2"]').count()) === 0);
+  await pg.selectOption('#ie-i1', 'mo');
+  check('back to monthly, that account can be removed again', (await pg.locator('[data-act="del-acct"][data-id="s2"]').count()) === 1 && !(await pg.locator('#ip-i1').count()));
+  await pg.selectOption('#ie-i1', 'biwk');
+  await pg.selectOption('#ix-i1', '');
+  await pg.selectOption('#ie-i1', 'wk');
+  check('an explicit "Leave it where it lands" survives a switch between every two weeks and weekly', (await pg.inputValue('#ix-i1')) === '', await pg.inputValue('#ix-i1'));
+  await pg.selectOption('#ix-i1', 's2');
+  await pg.selectOption('#ie-i1', 'biwk');
+  await pg.fill('#ip-i1', '2027-01-01');
+  await settle();
+  check('a payday is stored', (await storedInc()).payday === '2027-01-01');
+  await pg.evaluate(() => { const i = document.getElementById('ip-i1'); i.type = 'text'; i.value = 'not a date'; i.dispatchEvent(new Event('input', { bubbles: true })); });
+  await settle();
+  await pg.reload({ waitUntil: 'networkidle' });
+  check('a payday that is not a date is stored empty, and the plan still loads', (await storedInc()).payday === '' && (await loadedScn(pg)) === 'm');
+  await pp.ctx.close();
+
+  // A removed account an income's extra paychecks used to go to reads "Leave it where it lands" (or the default), never its id.
+  const dg = await openPage({ storage: minPlan((p) => {
+    p.accounts.s2 = { name: 'Savings two', note: '', kind: 'save', owner: '' };
+    p.acctOrder.push('s2');
+    p.scenarios[0].incomes.push({ id: 'i1', name: 'Pay', amt: 3000, who: 'p1', to: 'c', every: 'mo', payday: '', extraTo: '' });
+  }) });
+  const dp = dg.page;
+  await dp.selectOption('#ie-i1', 'biwk');
+  await dp.selectOption('#ix-i1', 's2');
+  await dp.selectOption('#ie-i1', 'mo');
+  await dp.click('[data-act="del-acct"][data-id="s2"]');
+  await dp.click('[data-act="del-acct"][data-id="s2"]');
+  await dp.selectOption('#ie-i1', 'biwk');
+  const dOpts = await dp.$$eval('#ix-i1 option', (o) => o.map((x) => x.textContent));
+  const dSel = await dp.$eval('#ix-i1', (el) => el.selectedOptions[0].textContent);
+  check('extra paychecks to a removed account read as the default, never the raw id',
+    !dOpts.includes('s2') && dSel === 'Savings' && (await dp.inputValue('#ix-i1')) === 's', JSON.stringify({ dOpts, dSel }));
+  await dg.ctx.close();
+  // Hand-edited: a biwk income naming a missing account shows "Leave it where it lands".
+  const dh = await openPage({ storage: minPlan((p) => {
+    p.scenarios[0].incomes.push({ id: 'i1', name: 'Pay', amt: 1500, who: 'p1', to: 'c', every: 'biwk', payday: '', extraTo: 'gone' });
+  }) });
+  const hSel = await dh.page.$eval('#ix-i1', (el) => el.selectedOptions[0].textContent);
+  check('a hand-edited extraTo naming a missing account shows "Leave it where it lands"', hSel === 'Leave it where it lands' && (await dh.page.inputValue('#ix-i1')) === '', hSel);
+  await dh.ctx.close();
+
+  for (const scheme of ['light', 'dark']) {
+    const ph = await openPage({ viewport: { width: 390, height: 844 }, colorScheme: scheme, storage: minPlan((p) => {
+      p.scenarios[0].incomes.push({ id: 'i1', name: 'Take-home pay', amt: 1500, who: 'p1', to: 'c', every: 'biwk', payday: '2027-01-01', extraTo: 's' });
+    }) });
+    const overflow = await ph.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    check(`the income row fits a 390px screen (${scheme})`, overflow <= 0 && (await ph.page.locator('#ip-i1').isVisible()), `${overflow}px too wide`);
+    if (SHOTS) await ph.page.locator('[data-tour="income"]').screenshot({ path: path.join(SHOTS, `income-390-${scheme}.png`) });
+    await ph.ctx.close();
+  }
 });
 
 // Two people whose pay lands in their own checking accounts, with the yearly-costs fund on.
@@ -1244,7 +1462,10 @@ function sepPlan(edit) {
     acctOrder: ['j', 'js', 'a1', 's1'],
     scenarios: [{
       id: 'sep', name: 'Separate', sub: '', depositTo: 'j', split: { mode: 'income', pct: {} },
-      incomes: [{ id: 'ia', name: 'Alex pay', amt: 3000, who: 'pa', to: 'a1' }, { id: 'is', name: 'Sam pay', amt: 1000, who: 'ps', to: 's1' }],
+      incomes: [
+        { id: 'ia', name: 'Alex pay', amt: 3000, who: 'pa', to: 'a1', every: 'mo', payday: '', extraTo: '' },
+        { id: 'is', name: 'Sam pay', amt: 1000, who: 'ps', to: 's1', every: 'mo', payday: '', extraTo: '' },
+      ],
       lines: [
         { id: 'l1', g: 'need', name: 'Rent', amt: 1000, f: 'mo', acct: 'j', cat: '', due: 0 },
         { id: 'l2', g: 'save', name: 'Savings', amt: 500, f: 'mo', acct: 'js' },
@@ -1292,7 +1513,7 @@ section('separate', async () => {
     !zero.shown && zero.focus === 'ia-is' && back.shown && back.focus === 'ia-is', JSON.stringify({ zero, back }));
   let pay = await cardText(page, 'transfers');
   check('each person gets their own transfers', pay.includes('Alex’s pay') && pay.includes('Sam’s pay'), pay);
-  check('the headings say how much lands where', pay.includes('Alex’s pay · $3,000 into Checking · Alex') && pay.includes('Sam’s pay · $1,000 into Checking · Sam'), pay);
+  check('the headings say how much lands where', pay.includes('Alex’s pay · $3,000 a month into Checking · Alex') && pay.includes('Sam’s pay · $1,000 a month into Checking · Sam'), pay);
   check('the steps name the shares they are made of', pay.includes('75% of shared savings $500') && pay.includes('Alex’s yearly costs $100'), pay);
 
   await page.selectOption('#split-mode', 'equal');
@@ -1341,7 +1562,7 @@ section('separate', async () => {
   // Sam has no pay; Alex has a second income landing in Joint checking, so pay still lands in two accounts.
   const b = await openPage({ storage: sepPlan((p) => {
     p.scenarios[0].incomes[1].amt = 0;
-    p.scenarios[0].incomes.push({ id: 'ig', name: 'Side gig', amt: 500, who: 'pa', to: 'j' });
+    p.scenarios[0].incomes.push({ id: 'ig', name: 'Side gig', amt: 500, who: 'pa', to: 'j', every: 'mo', payday: '', extraTo: '' });
   }) });
   sp = (await splitOf(b.page)).sp;
   pay = await cardText(b.page, 'transfers');
@@ -1391,6 +1612,130 @@ section('separate', async () => {
     const wide = await ph.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     check(`390px ${scheme}: no horizontal scroll with the split control and both person blocks`, shown && wide <= 0, `${wide}px too wide, shown: ${shown}`);
     if (SHOTS) await ph.page.screenshot({ path: path.join(SHOTS, scheme === 'light' ? 'phone-separate.png' : 'phone-separate-dark.png'), fullPage: true });
+    await ph.ctx.close();
+  }
+});
+
+// sepPlan with Sam paid every two weeks, $500 a paycheck: his budgeted monthly pay is still 1000, so splitPlan's numbers
+// are unchanged (Sam moves 250 to Joint checking and 137.5 to Joint savings, and keeps 612.5). `edit` changes Sam's income.
+const samBiwk = (edit) => sepPlan((p) => {
+  Object.assign(p.scenarios[0].incomes[1], { amt: 500, every: 'biwk', payday: '2027-01-01', extraTo: 'js' }, edit || {});
+});
+const extraText = (page) => page.evaluate(() => { const el = document.querySelector('[data-tour="transfers"] .extra-pay'); return el ? el.textContent : ''; });
+const personText = (page, pid) => page.evaluate((p) => { const el = document.querySelector(`.pp[data-person="${p}"]`); return el ? el.textContent : ''; }, pid);
+// One step of a person's block: its text, and the amount it shows.
+const personStep = (page, pid, acct) => page.evaluate(([p, a]) => {
+  const li = Array.from(document.querySelectorAll(`.pp[data-person="${p}"] .steps li`)).find((x) => x.textContent.includes(a));
+  return li ? { text: li.textContent, amt: li.children[1].textContent } : { text: '', amt: '' };
+}, [pid, acct]);
+const compareRow = (page, label) => page.evaluate((l) => {
+  const tr = Array.from(document.querySelectorAll('[data-tour="compare"] tbody tr')).find((x) => x.children[0].textContent === l);
+  return tr ? tr.textContent : '';
+}, label);
+const summaryText = (page) => page.evaluate(() => document.getElementById('summary').textContent);
+
+section('paydays', async () => {
+  // Review Focus 2: in a time zone with daylight saving, a payday decades away on the same cycle gives the same months.
+  const z = await openPage({ timezoneId: 'America/New_York' });
+  const em = (x, from, n) => z.page.evaluate(([x, from, n]) => window.__hbp.extraMonths(x, from, n), [x, from, n]);
+  const x = (every, payday) => ({ every, payday, amt: 1, who: 'p1', to: 'c' });
+  check('every two weeks from 1 Jan 2027: three paydays in Jan, Jul and Dec', (await em(x('biwk', '2027-01-01'), '2027-01', 12)).join() === '2027-01,2027-07,2027-12');
+  check('weekly from 1 Jan 2027: five in Jan, Apr, Jul, Oct and Dec', (await em(x('wk', '2027-01-01'), '2027-01', 12)).join() === '2027-01,2027-04,2027-07,2027-10,2027-12');
+  check('the window starts where asked', (await em(x('biwk', '2027-01-01'), '2026-11', 12)).join() === '2027-01,2027-07');
+  check('a payday two years earlier on the same cycle gives the same months', (await em(x('biwk', '2025-01-03'), '2027-01', 12)).join() === '2027-01,2027-07,2027-12');
+  const far = [await em(x('biwk', '2000-01-07'), '2027-01', 12), await em(x('biwk', '2032-03-05'), '2027-01', 12)];
+  check('a payday decades back or years ahead, across leap days, gives the same months', far.every((m) => m.join() === '2027-01,2027-07,2027-12'), JSON.stringify(far));
+  check('no payday or monthly pay: no months', !(await em(x('biwk', ''), '2027-01', 12)).length && !(await em(x('mo', '2027-01-01'), '2027-01', 12)).length &&
+    !(await em(x('semi', '2027-01-01'), '2027-01', 12)).length && !(await em(x('biwk', '2027-02-30'), '2027-01', 12)).length);
+  await z.ctx.close();
+
+  const { ctx, page } = await openPage({ storage: samBiwk(), date: '2026-11-16T12:00' });
+  const sp = (await splitOf(page)).sp;
+  check('Sam’s budgeted pay is still 1000, so his monthly transfers are unchanged',
+    near(mv(sp, 'ps', 'j'), 250) && near(mv(sp, 'ps', 'js'), 137.5) && near(mv(sp, 'pa', 'j'), 750), JSON.stringify(sp));
+  const alex = await personText(page, 'pa'), sam = await personText(page, 'ps');
+  const alexJ = await personStep(page, 'pa', 'Move to Joint checking');
+  check('separate pay: a monthly income’s steps are once a month, unchanged', alex.includes('Once a month') && alexJ.text.includes('$750') && alexJ.amt === '$750', alex);
+  const samJ = await personStep(page, 'ps', 'Move to Joint checking');
+  check('separate pay: an every-two-weeks income’s steps are twice a month, half each',
+    sam.includes('Twice a month, on the 15th and the last day') && !sam.includes('after paydays') && !sam.includes('Once a month') && samJ.text.includes('$125') && samJ.amt === '$125' && samJ.text.includes('($250 a month)'), sam);
+  const samS = await personStep(page, 'ps', 'Move to Joint savings'), samK = await personStep(page, 'ps', 'Keep in');
+  check('every step and the keep are halved the same way', samS.amt === '$69' && samS.text.includes('($138 a month)') && samK.amt === '$306' && samK.text.includes('($613 a month)'),
+    JSON.stringify([samS, samK]));
+  let extra = await extraText(page);
+  check('extra paychecks list the months and where they go', extra.includes('Extra paychecks (not in the monthly plan)') &&
+    extra.includes('Sam · Jan 2027, Jul 2027: move $500 each to Joint savings') && (await page.locator('[data-extra="is"]').count()) === 1 &&
+    (await page.locator('[data-extra="ia"]').count()) === 0, extra);
+  check('the summary counts them outside the plan', (await summaryText(page)).includes('Plus about $1,000 a year in extra paychecks, outside the monthly plan.'), await summaryText(page));
+  check('compare shows extra paychecks a year', (await compareRow(page, 'Extra paychecks a year')).includes('$1,000'), await cardText(page, 'compare'));
+  await page.fill('#ip-is', '');
+  extra = await extraText(page);
+  check('without a payday it gives the count', extra.includes('Sam · usually two a year (add a recent payday to see the months): move $500 each to Joint savings'), extra);
+  check('the payday stays empty', (await page.evaluate(() => window.__hbp.state().scenarios[0].incomes[1].payday)) === '');
+  await ctx.close();
+
+  // All monthly: no extra paychecks anywhere.
+  const mo = await openPage({ storage: sepPlan(), date: '2026-11-16T12:00' });
+  check('with monthly pay there is no extra-paychecks block, summary line or compare row',
+    !(await mo.page.locator('.extra-pay').count()) && !(await summaryText(mo.page)).includes('extra paychecks') &&
+    !(await compareRow(mo.page, 'Extra paychecks a year')) && (await personText(mo.page, 'ps')).includes('Once a month'));
+  await mo.ctx.close();
+
+  // Review Focus 4: extraTo naming a removed account (hand-edited file); and extraTo naming the account the pay lands in.
+  for (const [to, label] of [['gone', 'a removed account'], ['s1', 'the account the pay lands in']]) {
+    const g = await openPage({ storage: samBiwk({ extraTo: to }), date: '2026-11-16T12:00' });
+    const t = await extraText(g.page);
+    check(`extra paychecks to ${label} stay where they land`, (await loadedScn(g.page)) === 'sep' && t.includes('Sam · Jan 2027, Jul 2027: $500 each, left in Checking · Sam') &&
+      !t.includes('move') && !t.includes('Deleted account'), t);
+    await g.ctx.close();
+  }
+
+  // Review Focus 3: a $0 every-two-weeks income is inactive.
+  const zero = await openPage({ storage: samBiwk({ amt: 0 }), date: '2026-11-16T12:00' });
+  check('a $0 every-two-weeks income lists no extra paychecks and no NaN',
+    (await loadedScn(zero.page)) === 'sep' && !(await zero.page.locator('[data-extra="is"]').count()) && !(await zero.page.locator('.extra-pay').count()) &&
+    !(await summaryText(zero.page)).includes('extra paychecks') && !(await compareRow(zero.page, 'Extra paychecks a year')) && await noNaN(zero.page));
+  await zero.ctx.close();
+
+  // Weekly pay: four extra paychecks a year; twice a month: halved steps, no extra paychecks.
+  const wk = await openPage({ storage: samBiwk({ amt: 250, every: 'wk', payday: '' }), date: '2026-11-16T12:00' });
+  const wkS = await personStep(wk.page, 'ps', 'Move to Joint checking');
+  check('weekly pay: twice-a-month steps and four extra paychecks a year',
+    wkS.amt === '$125' && (await extraText(wk.page)).includes('Sam · usually four a year (add a recent payday to see the months): move $250 each to Joint savings') &&
+    (await summaryText(wk.page)).includes('Plus about $1,000 a year in extra paychecks'), JSON.stringify(wkS) + ' | ' + (await extraText(wk.page)));
+  await wk.ctx.close();
+  const semi = await openPage({ storage: samBiwk({ every: 'semi', payday: '' }), date: '2026-11-16T12:00' });
+  const semiS = await personStep(semi.page, 'ps', 'Move to Joint checking');
+  check('twice-a-month pay: halved steps, no extra paychecks', semiS.amt === '$125' && (await personText(semi.page, 'ps')).includes('Twice a month, after paydays') && !(await personText(semi.page, 'ps')).includes('15th') &&
+    !(await semi.page.locator('.extra-pay').count()), JSON.stringify(semiS));
+  await semi.ctx.close();
+
+  // Pooled: Sam's pay lands in Alex's checking too. The list stays monthly, with a note; extra paychecks are still listed.
+  const pl = await openPage({ storage: samBiwk({ to: 'a1' }), date: '2026-11-16T12:00' });
+  const transfers = await cardText(pl.page, 'transfers');
+  check('pooled pay stays monthly, with a note', (await pl.page.evaluate(() => window.__hbp.splitPlan())) === null &&
+    transfers.includes('Set these up once a month, on the last day of the month, after the month’s paychecks have landed.') &&
+    (await stepText(pl.page, 'Joint savings')).includes('$650') && (await stepText(pl.page, 'Joint checking')).includes('$1,000'), transfers);
+  check('pooled pay lists extra paychecks too', (await extraText(pl.page)).includes('Sam · Jan 2027, Jul 2027: move $500 each to Joint savings'), await extraText(pl.page));
+  await pl.ctx.close();
+  // One non-monthly earner, everything pooled: the note still shows (it is not about "different" schedules).
+  const one = await openPage({ storage: minPlan((p) => { p.scenarios[0].incomes.push({ id: 'i1', name: 'Pay', amt: 1500, who: 'p1', to: 'c', every: 'biwk', payday: '2027-01-01', extraTo: '' }); }), date: '2026-11-16T12:00' });
+  check('pooled with one every-two-weeks earner shows the once-a-month note',
+    (await one.page.evaluate(() => window.__hbp.payMode())).pooled === true && (await cardText(one.page, 'transfers')).includes('Set these up once a month, on the last day of the month, after the month’s paychecks have landed.'));
+  await one.ctx.close();
+  const pm = await openPage({ storage: sepPlan((p) => { p.scenarios[0].incomes[1].to = 'a1'; }) });
+  check('pooled monthly pay has no schedule note', !(await cardText(pm.page, 'transfers')).includes('after the month’s paychecks have landed'));
+  await pm.ctx.close();
+
+  for (const scheme of ['light', 'dark']) {
+    const ph = await openPage({ viewport: { width: 390, height: 844 }, colorScheme: scheme, date: '2026-11-16T12:00', storage: samBiwk() });
+    const shown = (await extraText(ph.page)).includes('Sam · Jan 2027') && (await personText(ph.page, 'ps')).includes('Twice a month');
+    const wide = await ph.page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    check(`390px ${scheme}: no horizontal scroll with twice-a-month steps and extra paychecks`, shown && wide <= 0, `${wide}px too wide, shown: ${shown}`);
+    if (SHOTS) {
+      await ph.page.locator('[data-tour="transfers"]').screenshot({ path: path.join(SHOTS, `paydays-390-${scheme}.png`) });
+      await ph.page.locator('#summary').screenshot({ path: path.join(SHOTS, `paydays-summary-390-${scheme}.png`) });
+    }
     await ph.ctx.close();
   }
 });

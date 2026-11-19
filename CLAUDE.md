@@ -2,7 +2,8 @@
 
 A small installable web app (PWA) for a household to plan a monthly budget together:
 add the people, say whose pay and whose accounts are whose, split take-home pay into necessities,
-savings and variable spending, see the payday transfers between accounts (pooled, or one list per
+savings and variable spending, say how often each income is paid (monthly, twice a month, every two
+weeks or weekly), see the payday transfers between accounts (pooled, or one list per
 person when pay is separate), track savings goals, and compare scenarios (versions of the plan).
 Items are grouped into Honeydue categories, a monthly check-in compares Honeydue's actual totals
 with the plan, goals can have a "by" date, a yearly-costs fund sets aside a twelfth of yearly bills,
@@ -34,15 +35,17 @@ per-transaction tracking.
 - `manifest.webmanifest`, `icons/`: install metadata and icons.
 - `tests/smoke.js`: headless-browser smoke test (Playwright) in named sections; `tests/fixtures/plan-v1.json`
   and `plan-v2.json` are exports of the older two-scenario example plan, for migration tests and for sections
-  that need its numbers. Not part of the app, so they stay out of `ASSETS`.
+  that need its numbers; `plan-v3.json` is a v3 export of the one-scenario example, for the v3 → v4 tests.
+  Not part of the app, so they stay out of `ASSETS`.
 - `docs/superpowers/`: the designs (`specs/`) and plans (`plans/`) for the v2 features (categories, check-in,
-  goals, tour) and for v3 (people and accounts). `.nojekyll` makes GitHub Pages serve files as-is, so Markdown
+  goals, tour), for v3 (people and accounts) and for v4 (pay schedules: `specs/2026-11-19-pay-schedules-design.md`,
+  `plans/2026-11-19-pay-schedules.md`). `.nojekyll` makes GitHub Pages serve files as-is, so Markdown
   here can never break a deploy.
 
-## Data model (`state`, v3)
+## Data model (`state`, v4)
 
 ```
-{ v: 3, touched, modifiedAt, lastSync: {at, kind: 'export'|'import', by} | null, active,
+{ v: 4, touched, modifiedAt, lastSync: {at, kind: 'export'|'import', by} | null, active,
   people: [{ id, name }],                               // the household, n ≥ 1, in display order
   accounts: { <acctId>: { name, note,                   // keyed by id; v2's jchk, mchk, jsav, msav, inv are ordinary ids
                kind: 'spend'|'save',                    // spending (pays need/want, pay lands here) or savings/investing
@@ -56,7 +59,10 @@ per-transaction tracking.
     fund:  null | { acct, planned, due, months, start, balance, assumed } }],
   scenarios: [{ id, name, sub, depositTo,               // depositTo: the v2 landing account, kept as a fallback
     split: { mode: 'income'|'equal'|'custom', pct: { personId: number } },  // how shared costs split when pay is separate
-    incomes: [{ id, name, amt, who: personId, to: acctId }],  // monthly take-home; whose pay, which spending account it lands in
+    incomes: [{ id, name, amt, who: personId, to: acctId,     // amt = one paycheck; whose pay, where it lands (spending)
+                every: 'mo'|'semi'|'biwk'|'wk',          // how often it is paid (PAY below)
+                payday: '' | 'YYYY-MM-DD',               // any one known payday; used only by biwk/wk
+                extraTo: '' | acctId }],                 // where extra paychecks go; '' = leave them where they land
     lines:   [{ id, g: 'need'|'save'|'want', name, amt, f: 'mo'|'wk'|'yr', acct,
                 cat?: '' | catId, due?: 0..12,           // need/want only; due = month a yearly line is paid
                 goal?: { mode: 'none'|'amount'|'months', amount, months, saved, by: '' | 'YYYY-MM' } }] }] }
@@ -69,7 +75,7 @@ per-transaction tracking.
   what is stored through `readStored()`, the same path as on load (upgrade, newer-version guard, backup),
   drops its own pending save and re-renders. It skips a value equal to `seenRaw`, the one it last read or
   wrote. It never writes back from that handler, or two windows would overwrite each other.
-- Export file: `{ app: 'household-budget-planner', v: 3, exportedAt, exportedBy, state }`, named
+- Export file: `{ app: 'household-budget-planner', v: 4, exportedAt, exportedBy, state }`, named
   `budget-plan-YYYY-MM-DD.json`. On touch devices it uses the share sheet; otherwise a download.
   Import validates, then asks before replacing the device's plan.
 - `migrate()` upgrades older plans one step at a time, on load and on import, by only adding fields;
@@ -79,27 +85,48 @@ per-transaction tracking.
   and owners `mchk`/`msav` Person 1, the rest Shared; `acctOrder: ['jchk','mchk','jsav','msav','inv']`;
   every income `who` = Person 1 and `to` = the scenario's `depositTo` if that is `jchk` or `mchk`, else
   `jchk` (so every upgraded scenario is pooled and its payday plan is unchanged); `split: {mode: 'income', pct: {}}`.
-- Validation (`validPlan`, v3; `validV2` checks a v2 plan between steps) refuses a malformed plan rather than
+  v3 → v4 (`v3to4`) gives every income `every: 'mo'`, `payday: ''`, `extraTo: ''` (monthly, so `amt` is still the
+  monthly take-home and every number is unchanged).
+- After an upgrade, a banner asks to add the people in the household only when the plan came from v1 or v2
+  (stored `from` ≤ 2, or an imported file whose `state.v` ≤ 2). A v3 plan already has people and gets no banner.
+- Validation (`validPlan`, v4; `validV2` checks a v2 plan between steps) refuses a malformed plan rather than
   half-loading it. Ids that reach HTML must match `ID_RE`: people ids, `acctOrder` entries, income `who`/`to`,
   `split.pct` keys (and category, line, scenario, income and check-in ids as before). People ids, `acctOrder`
   entries and `split.pct` keys are also object keys, so they can't be names every object inherits (`__proto__`,
   `constructor`, `toString`…), and people ids and `acctOrder` entries are each listed once. `people` is non-empty,
   every `acctOrder` entry is an account with a kind, there is at least one spending and one savings
-  account, `fund.acct` is `''` or a savings account, and `split.mode` is one of the three. Dangling
-  references (an owner, `who` or `to` that no longer exists) are allowed and shown gracefully.
-- Backups: before upgrading a stored plan of version k (1 or 2), its raw JSON is copied to
+  account, `fund.acct` is `''` or a savings account, and `split.mode` is one of the three. Each income's `every`
+  is a key of `PAY`, `payday` is `''` or a real calendar date `YYYY-MM-DD` (`isDate`), and `extraTo` is `''` or
+  matches `ID_RE`. Dangling references (an owner, `who`, `to` or `extraTo` that no longer exists) are allowed and
+  shown gracefully.
+- Backups: before upgrading a stored plan of version k (1, 2 or 3), its raw JSON is copied to
   `household-budget-planner:plan:v{k}-backup`; a stored value that can't be read goes to the `v1-backup`
   key. Each is written only if that key is empty. `readStored()` returns `{ plan, newer, upgraded, from }`.
-- Guard: a stored plan or imported file with `v` newer than the app (`DATA_V = 3`) is never saved over;
+- Guard: a stored plan or imported file with `v` newer than the app (`DATA_V = 4`) is never saved over;
   the app shows "This plan was saved by a newer version of the app…" and blocks export/import.
-  The v1 and v2 apps have the same guard, so rolling the v3 features back cannot overwrite a v3 plan.
+  The v1, v2 and v3 apps have the same guard, so rolling the v4 features back cannot overwrite a v4 plan.
 - Example plan (`defaults()`, a fresh device and "Reset to example plan"): one scenario "Example"; people Alex
-  and Sam, each with an income landing in Joint checking (pooled); Joint checking, Joint savings and
+  and Sam, each with an income landing in Joint checking (pooled); Alex is paid monthly ($3,600), Sam every two
+  weeks ($1,500 a paycheck, so $3,000 budgeted a month) with a payday set to the most recent Friday (0–6 days
+  back) when the plan is created, and extra paychecks going to Joint savings; Joint checking, Joint savings and
   Retirement / investing shared, plus a Checking each; six categories; the yearly-costs fund on into Joint
   savings; an emergency-fund goal and a dated Vacation goal. Generic names and round numbers only.
 - Item vs `lines`: the screen says "item", never "line". The `lines` field, `data-scope="line"` and
   `'line:' + id` check-in keys keep their names (renaming them would need a migration for no visible gain).
 - Monthly conversion: weekly × 52/12, yearly × 1/12. All amounts are after-tax dollars.
+- Pay schedules (`PAY`, entries `{ label, k, extra, step }`; `payOf(x)` is an income's entry, monthly for an
+  unknown `every`):
+
+  | every | label | regular paychecks a month k | extra paychecks a year | step |
+  |---|---|---|---|---|
+  | `mo` | Monthly | 1 | 0 | 0 |
+  | `semi` | Twice a month | 2 | 0 | 0 |
+  | `biwk` | Every two weeks | 2 | 2 (some years 3) | 14 days |
+  | `wk` | Weekly | 4 | 4 (some years 5) | 7 days |
+
+  The monthly plan budgets on the regular paychecks: an income's monthly take-home is `incMonthly(x)` = k × `amt`.
+  Everything that sums pay reads that (`calc().I`, `isActive`, `payBy`, `splitPlan`'s I_i, the People card, the
+  scenario tabs and Compare); extra paychecks stay out of the monthly plan.
 - Goal balance is one number: the latest check-in's `balance` for that goal (matched by line id, then
   name), else `goal.saved`; "Saved so far" edits that same number (and is then labelled
   "Balance at end of <month>"). Check-in balances are pre-filled as `start + planned × months` (whole
@@ -113,7 +140,7 @@ per-transaction tracking.
   Honeydue limits then leave yearly lines out. A check-in plans a dated yearly line in full in its due
   month and at 0 in other months (spread lines at 1/12).
   A check-in's fund row is pre-filled as max(0, start + c × months − bills due in those months).
-- Transfer plan (`payMode`, `transfers`, `weights`, `splitPlan`). An income is active from $0.50 a month and lands
+- Transfer plan (`payMode`, `transfers`, `weights`, `splitPlan`). An income is active when `incMonthly(x)` ≥ $0.50 and lands
   in `incTo()` (its `to`, else the first spending account). Each item has a bearer, `acct` (whose cost it is), and a
   destination, `destOf()` (the fund account for a yearly item while the fund is on, else `acct`). N_a = `calc().by[a]`
   sums items by destination. Group totals, Honeydue limits, goals, the fund and check-ins don't depend on the mode.
@@ -130,6 +157,22 @@ per-transaction tracking.
     L_p = I_p − Σ_a O_{p,a}. Warnings: L_p < −0.5 ("<Name>’s share is $X more than <Name>’s pay"; for someone with
     no pay, their share of shared items), and an account owned by someone with no pay whose items total > 0.5
     ("Nobody’s pay covers <account> ($X)…"): flagged, not quietly paid from shared money.
+  - Pay schedule and the payday plan. Transfers are set up at the frequency of the pay that funds them, never per
+    paycheck (a transfer on every biweekly paycheck would fire 26 times a year). A monthly income's steps are shown
+    once a month; any other schedule's are half of T_{i,a} (each move rounded up to the dollar, the keep's half
+    rounded down), with "($X a month)" in the why-text. Every two weeks or weekly: "Twice a month, on the 15th and
+    the last day" (a month's first regular paycheck is in by the 14th, the second by the 28th; biweekly paydays
+    drift earlier each month, so "after paydays" could run ahead of pay). Twice a month: "Twice a month, after
+    paydays". A person's heading reads "<Name>’s pay · $X a month into <account>". Pooled pay stays one monthly list; when
+    any active income isn't monthly a note says "Set these up once a month, on the last day of the month, after the
+    month’s paychecks have landed."
+  - Extra paychecks (`extraMonths(x, fromKey, n)`, `extraDest`, `extraYear`): the 2 (biwk) or 4 (wk) paychecks a
+    year beyond the regular ones are budgeted nowhere. A block "Extra paychecks (not in the monthly plan)" lists,
+    for each active biwk/wk income, the months in the next 12 holding more paydays than k (3 for biwk, 5 for wk;
+    day arithmetic in UTC) and the whole `amt` to move to `extraTo`, or "left in <landing account>" when that is
+    `''`, dangling or the landing account. Without a `payday` it says "usually two a year" ("four" for weekly)
+    and no months. The summary card adds "Plus about $X a year in extra paychecks, outside the monthly plan."
+    and Compare a row "Extra paychecks a year". Goals, the fund and 50/30/20 ignore them.
 - Tour: `household-budget-planner:tour-seen` in localStorage, per device, not exported.
 
 ## How the UI code works
@@ -173,9 +216,9 @@ it warns and skips.
 
 ## Feature ideas under consideration
 
-Done: monthly check-in (was 1), calendar of yearly costs as part of the yearly-costs fund (was 4).
+Done: monthly check-in, calendar of yearly costs as part of the yearly-costs fund, pay schedules (twice a month,
+every two weeks, weekly; payday plan halves the transfers, extra paychecks shown apart).
 The in-app tour explains the app but doesn't collect numbers; a first-time setup walkthrough that does is not planned yet.
 
-1. Per-paycheck transfers for twice-monthly or biweekly pay (a pay schedule on each income; divides the per-income transfers).
-2. Planned changes over time: a timeline of scenarios (switch to another scenario from a given month).
-3. Interest on savings: B_t = B_0 (1+r)^t + s((1+r)^t − 1)/r at monthly rate r, a rate per savings account, charted per goal.
+1. Planned changes over time: a timeline of scenarios (switch to another scenario from a given month).
+2. Interest on savings: B_t = B_0 (1+r)^t + s((1+r)^t − 1)/r at monthly rate r, a rate per savings account, charted per goal.

@@ -4,6 +4,7 @@ A small, installable web app for planning a monthly household budget:
 
 - Split take-home pay into **necessities**, **savings**, and **variable** spending.
 - Add the **people** in your household and their **accounts** (shared or personal, spending or savings); say whose pay each income is and where it lands.
+- Set how often each income is paid (monthly, twice a month, every two weeks or weekly) and enter one paycheck; the plan budgets the regular paychecks each month and lists the **extra paychecks** (two a year if paid every two weeks) apart, with where to put them.
 - See the **payday transfer plan**: how much to move from the account each paycheck lands in to your other accounts. Pooled pay gets one list; separate pay gets one per person, with shared costs split by a rule you pick.
 - Track **savings goals** (for example, an emergency fund of N months of necessities) and when you'll reach them.
 - Compare **scenarios** side by side (for example, now vs. after a new job or a move); add, copy or delete them as your plans change.

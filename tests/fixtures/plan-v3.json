@@ -1,0 +1,341 @@
+{
+  "app": "household-budget-planner",
+  "v": 3,
+  "exportedAt": "2026-11-01T20:00:00.000Z",
+  "exportedBy": "",
+  "state": {
+    "v": 3,
+    "touched": false,
+    "modifiedAt": 0,
+    "lastSync": null,
+    "active": "example",
+    "people": [
+      {
+        "id": "imvxln6o07",
+        "name": "Alex"
+      },
+      {
+        "id": "imvxln6o08",
+        "name": "Sam"
+      }
+    ],
+    "accounts": {
+      "imvxln6o09": {
+        "name": "Joint checking",
+        "note": "Shared bills",
+        "kind": "spend",
+        "owner": ""
+      },
+      "imvxln6o0a": {
+        "name": "Joint savings",
+        "note": "Emergency fund and vacation",
+        "kind": "save",
+        "owner": ""
+      },
+      "imvxln6o0b": {
+        "name": "Retirement / investing",
+        "note": "IRA or brokerage",
+        "kind": "save",
+        "owner": ""
+      },
+      "imvxln6o0c": {
+        "name": "Checking",
+        "note": "Own spending",
+        "kind": "spend",
+        "owner": "imvxln6o07"
+      },
+      "imvxln6o0d": {
+        "name": "Checking",
+        "note": "Own spending",
+        "kind": "spend",
+        "owner": "imvxln6o08"
+      }
+    },
+    "acctOrder": [
+      "imvxln6o09",
+      "imvxln6o0a",
+      "imvxln6o0b",
+      "imvxln6o0c",
+      "imvxln6o0d"
+    ],
+    "cats": [
+      {
+        "id": "imvxln6o01",
+        "name": "Bills & utilities"
+      },
+      {
+        "id": "imvxln6o02",
+        "name": "Groceries"
+      },
+      {
+        "id": "imvxln6o03",
+        "name": "Transportation"
+      },
+      {
+        "id": "imvxln6o04",
+        "name": "Eating out & fun"
+      },
+      {
+        "id": "imvxln6o05",
+        "name": "Personal"
+      },
+      {
+        "id": "imvxln6o06",
+        "name": "Gifts"
+      }
+    ],
+    "fund": {
+      "acct": "imvxln6o0a",
+      "saved": 0
+    },
+    "checkins": [],
+    "scenarios": [
+      {
+        "id": "example",
+        "name": "Example",
+        "sub": "Example numbers: replace them with yours",
+        "depositTo": "imvxln6o09",
+        "split": {
+          "mode": "income",
+          "pct": {}
+        },
+        "incomes": [
+          {
+            "id": "imvxln6o0z",
+            "name": "Take-home pay",
+            "amt": 3600,
+            "who": "imvxln6o07",
+            "to": "imvxln6o09"
+          },
+          {
+            "id": "imvxln6o010",
+            "name": "Take-home pay",
+            "amt": 3000,
+            "who": "imvxln6o08",
+            "to": "imvxln6o09"
+          }
+        ],
+        "lines": [
+          {
+            "id": "imvxln6o0e",
+            "g": "need",
+            "name": "Rent or mortgage",
+            "amt": 1800,
+            "f": "mo",
+            "acct": "imvxln6o09",
+            "cat": "imvxln6o01",
+            "due": 0
+          },
+          {
+            "id": "imvxln6o0f",
+            "g": "need",
+            "name": "Utilities (electric, gas, water)",
+            "amt": 180,
+            "f": "mo",
+            "acct": "imvxln6o09",
+            "cat": "imvxln6o01",
+            "due": 0
+          },
+          {
+            "id": "imvxln6o0g",
+            "g": "need",
+            "name": "Internet",
+            "amt": 60,
+            "f": "mo",
+            "acct": "imvxln6o09",
+            "cat": "imvxln6o01",
+            "due": 0
+          },
+          {
+            "id": "imvxln6o0h",
+            "g": "need",
+            "name": "Phone",
+            "amt": 100,
+            "f": "mo",
+            "acct": "imvxln6o09",
+            "cat": "imvxln6o01",
+            "due": 0
+          },
+          {
+            "id": "imvxln6o0i",
+            "g": "need",
+            "name": "Groceries & household supplies",
+            "amt": 700,
+            "f": "mo",
+            "acct": "imvxln6o09",
+            "cat": "imvxln6o02",
+            "due": 0
+          },
+          {
+            "id": "imvxln6o0j",
+            "g": "need",
+            "name": "Gas, transit & parking",
+            "amt": 250,
+            "f": "mo",
+            "acct": "imvxln6o09",
+            "cat": "imvxln6o03",
+            "due": 0
+          },
+          {
+            "id": "imvxln6o0k",
+            "g": "need",
+            "name": "Insurance (car, renters)",
+            "amt": 220,
+            "f": "mo",
+            "acct": "imvxln6o09",
+            "cat": "imvxln6o01",
+            "due": 0
+          },
+          {
+            "id": "imvxln6o0l",
+            "g": "need",
+            "name": "Health costs (copays, prescriptions)",
+            "amt": 80,
+            "f": "mo",
+            "acct": "imvxln6o09",
+            "cat": "imvxln6o05",
+            "due": 0
+          },
+          {
+            "id": "imvxln6o0m",
+            "g": "need",
+            "name": "Car registration & maintenance",
+            "amt": 900,
+            "f": "yr",
+            "acct": "imvxln6o09",
+            "cat": "imvxln6o03",
+            "due": 3
+          },
+          {
+            "id": "imvxln6o0n",
+            "g": "save",
+            "name": "Emergency fund",
+            "amt": 600,
+            "f": "mo",
+            "acct": "imvxln6o0a",
+            "goal": {
+              "mode": "months",
+              "months": 6,
+              "amount": 0,
+              "saved": 0,
+              "by": ""
+            }
+          },
+          {
+            "id": "imvxln6o0o",
+            "g": "save",
+            "name": "Vacation",
+            "amt": 300,
+            "f": "mo",
+            "acct": "imvxln6o0a",
+            "goal": {
+              "mode": "amount",
+              "months": 6,
+              "amount": 3600,
+              "saved": 0,
+              "by": "2027-11"
+            }
+          },
+          {
+            "id": "imvxln6o0p",
+            "g": "save",
+            "name": "Retirement / investing",
+            "amt": 500,
+            "f": "mo",
+            "acct": "imvxln6o0b"
+          },
+          {
+            "id": "imvxln6o0q",
+            "g": "want",
+            "name": "Dining out & takeout",
+            "amt": 300,
+            "f": "mo",
+            "acct": "imvxln6o09",
+            "cat": "imvxln6o04",
+            "due": 0
+          },
+          {
+            "id": "imvxln6o0r",
+            "g": "want",
+            "name": "Entertainment & outings",
+            "amt": 150,
+            "f": "mo",
+            "acct": "imvxln6o09",
+            "cat": "imvxln6o04",
+            "due": 0
+          },
+          {
+            "id": "imvxln6o0s",
+            "g": "want",
+            "name": "Subscriptions (streaming, apps)",
+            "amt": 50,
+            "f": "mo",
+            "acct": "imvxln6o09",
+            "cat": "imvxln6o04",
+            "due": 0
+          },
+          {
+            "id": "imvxln6o0t",
+            "g": "want",
+            "name": "Shopping & clothing",
+            "amt": 150,
+            "f": "mo",
+            "acct": "imvxln6o09",
+            "cat": "imvxln6o05",
+            "due": 0
+          },
+          {
+            "id": "imvxln6o0u",
+            "g": "want",
+            "name": "Personal care",
+            "amt": 80,
+            "f": "mo",
+            "acct": "imvxln6o09",
+            "cat": "imvxln6o05",
+            "due": 0
+          },
+          {
+            "id": "imvxln6o0v",
+            "g": "want",
+            "name": "Gifts & holidays",
+            "amt": 1200,
+            "f": "yr",
+            "acct": "imvxln6o09",
+            "cat": "imvxln6o06",
+            "due": 12
+          },
+          {
+            "id": "imvxln6o0w",
+            "g": "want",
+            "name": "Personal spending: Alex",
+            "amt": 150,
+            "f": "mo",
+            "acct": "imvxln6o0c",
+            "cat": "imvxln6o05",
+            "due": 0
+          },
+          {
+            "id": "imvxln6o0x",
+            "g": "want",
+            "name": "Personal spending: Sam",
+            "amt": 150,
+            "f": "mo",
+            "acct": "imvxln6o0d",
+            "cat": "imvxln6o05",
+            "due": 0
+          },
+          {
+            "id": "imvxln6o0y",
+            "g": "want",
+            "name": "Buffer for surprises",
+            "amt": 100,
+            "f": "mo",
+            "acct": "imvxln6o09",
+            "cat": "",
+            "due": 0
+          }
+        ]
+      }
+    ]
+  }
+}
